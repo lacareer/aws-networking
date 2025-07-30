@@ -3,15 +3,42 @@ Amazon Virtual Private Cloud (Amazon VPC) lets you provision a logically isolate
 
 In this lab, you will learn how to set up a VPC with public and private subnets, connect it to the internet and establish private connections to AWS services.
 
-**Lab Prerequisite**
+***Lab Prerequisite***
 - Please complete the pre-requisites section in /networking-immersion-ws/Readme.md before continuing this lab.
 
 - In this workshop, we only created one NAT Gateway in AZ1. It is best practice to create a NAT Gateway in each AZ for each subnet that is utilized.
 
-**Meet Prerequisite? Continue...**
-- Deploy the CloudFormation template in 02-multiple-vpcs/three-vpc.yaml to create 3 VPCs
+***Additions to templates***
+- I have added 2 subnest to VPC A with corresponding Route table and subnet association
+
+- Also added code for a Transit Gateway, attachment to VPC A, B, and C using the two private TGW subnets(one in u-east-1 and the other in us-east-2) for each VPC. Also, I have added the Routes to TGW in each VPC Private Route Tables(like we did in the previous lab with VPC peering) with provides interconnectivity between all 3 VPC's. 
+
+- Remove the route for any VPC you don't want to have interconnectivity. To make it similar  to the VPC peering lab you can comment out the codes for 'AddTGWPrivateRouteBC' and 'AddTGWPrivateRouteCB'
+
+***Meet Prerequisite? Continue...***
+- Deploy the CloudFormation template in 02-intermediate/02-peering-vpcs-using-TGW/three-vpcs-TGW.yaml to create 3 VPCs
 
 - Enter the Stack name 'NetworkingWorkshopMultiVPC'. Update the Parameter 'ParticipantIPAddress'. Leave the other parameter defaults unchanged if you are running in us-east-1 and click Next. If you are running in another region, update the availability zones.
 
 
-- Now continue with the lab pdf from VPC peering on page 2 of lab docs
+***Testing Connections***
+
+- Connections from VPC A --> VPC B and VPC A --> VPC C
+  From private server EC2 Instance, in VPC A, running the below should return a successful ping:
+
+    ping 10.1.1.100 -c 5 
+    ping 10.2.1.100 -c 5
+
+- Connections from VPC B --> VPC C and VPC B --> VPC A
+  From private server EC2 Instance, in VPC B, running the below should return a successful ping:
+
+    ping 10.2.1.100 -c 5
+    ping 10.0.1.100 -c 5 
+
+- Connections from VPC C --> VPC B and VPC C --> VPC A
+  From private server EC2 Instance, in VPC B, running the below should return a successful ping:
+
+    ping 10.1.1.100 -c 5
+    ping 10.0.1.100 -c 5 
+
+- Now continue to the testing section of lab pdf page 2 about TGW Route Tables

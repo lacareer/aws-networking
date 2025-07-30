@@ -9,9 +9,9 @@ In this lab, you will learn how to set up a VPC with public and private subnets,
 - In this workshop, we only created one NAT Gateway in AZ1. It is best practice to create a NAT Gateway in each AZ for each subnet that is utilized.
 
 **Meet Prerequisite? Continue...**
-- Deploy the CloudFormation template in 02-multiple-vpcs/three-vpc.yaml to create 3 VPCs
+- Deploy the CloudFormation template in 02-intermediate/01-peering-multiple-vpcs/three-vpcs.yaml to create 3 VPCs and pering connection between A/B and A/C
 
 - Enter the Stack name 'NetworkingWorkshopMultiVPC'. Update the Parameter 'ParticipantIPAddress'. Leave the other parameter defaults unchanged if you are running in us-east-1 and click Next. If you are running in another region, update the availability zones.
 
 
-- Now continue with the lab pdf from VPC peering on page 2 of lab docs (using only this page for the lab)
+- Now move to the testing section of the lab pdf 

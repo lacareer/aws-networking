@@ -10,4 +10,4 @@ In this lab, you will learn how to set up a VPC with public and private subnets,
 
 **Lab**
 - Use the lab pdf in this directory to completed the foundation lab  exercises. Or
-- Use deploy the one-vpc.yaml file to create all resources and go straight to the 'Test Connectivity' section of the pdf lab doc
+- Deploy the one-vpc.yaml file to create all resources and go straight to the 'Test Connectivity' section of the pdf lab doc

@@ -1,0 +1,478 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "CloudFormation template for simulated SD-WAN networking infrastructure"
+
+Parameters:
+  AMI:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id'
+    Description: "Fetch the latest Ubunto 22.04 AMI"
+  InstanceProfile:
+    Type: String
+    Default: "NetworkingWorkshopInstanceProfile"
+    Description: "IAM Instance Profile Name"
+  InstanceType:
+    Type: String
+    Default: "t3.small"
+    Description: "EC2 instance type for the routers"
+
+Resources:
+  # VPCs
+  ApplianceVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.5.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: Appliance-VPC
+
+  Branch1VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 172.20.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: Branch1-VPC
+
+  # Internet Gateways
+  ApplianceInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: Appliance-IGW
+
+  Branch1InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: Branch1-IGW
+
+  AttachApplianceGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref ApplianceVPC
+      InternetGatewayId: !Ref ApplianceInternetGateway
+
+  AttachBranch1Gateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Branch1VPC
+      InternetGatewayId: !Ref Branch1InternetGateway
+
+  # Subnets for Appliance VPC
+  AppliancePublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref ApplianceVPC
+      CidrBlock: 10.5.0.0/28
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: Appliance-Public-Subnet
+
+  ApplianceTGWSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref ApplianceVPC
+      CidrBlock: 10.5.5.0/28
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: Appliance-TGW-Subnet
+
+  # Subnets for Branch1 VPC
+  Branch1PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Branch1VPC
+      CidrBlock: 172.20.0.0/28
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: Branch1-Public-Subnet
+
+  Branch1Subnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Branch1VPC
+      CidrBlock: 172.20.16.0/20
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: Branch1-local-Subnet1
+
+  Branch1Subnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Branch1VPC
+      CidrBlock: 172.20.32.0/20
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: Branch1-local-Subnet2
+
+  # Route Tables and Associations for Appliance VPC
+  ApplianceRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref ApplianceVPC
+      Tags:
+        - Key: Name
+          Value: Appliance-RT
+
+  ApplianceDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachApplianceGateway
+    Properties:
+      RouteTableId: !Ref ApplianceRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref ApplianceInternetGateway
+
+  AppliancePeeringRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref ApplianceRouteTable
+      DestinationCidrBlock: 172.20.16.5/32
+      VpcPeeringConnectionId: !Ref VPCPeeringConnection
+
+  AppliancePublicRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref AppliancePublicSubnet
+      RouteTableId: !Ref ApplianceRouteTable
+
+  # Route table for PUBLIC subnet (internet access only)
+  Branch1PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Branch1VPC
+      Tags:
+        - Key: Name
+          Value: Branch1-Public-RT
+
+  Branch1DefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachBranch1Gateway
+    Properties:
+      RouteTableId: !Ref Branch1PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref Branch1InternetGateway
+
+  Branch1PublicRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref Branch1PublicSubnet
+      RouteTableId: !Ref Branch1PublicRouteTable
+
+  # Route table for PRIVATE subnet (peering access only)
+  Branch1PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Branch1VPC
+      Tags:
+        - Key: Name
+          Value: Branch1-Private-RT
+
+  Branch1PeeringRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref Branch1PrivateRouteTable
+      DestinationCidrBlock: 10.5.0.6/32
+      VpcPeeringConnectionId: !Ref VPCPeeringConnection
+
+  Branch1PrivateRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref Branch1Subnet1
+      RouteTableId: !Ref Branch1PrivateRouteTable
+
+
+
+  ###############################################
+  # 2. VPC Peering
+  ###############################################
+
+  VPCPeeringConnection:
+    Type: AWS::EC2::VPCPeeringConnection
+    Properties:
+      VpcId: !Ref ApplianceVPC
+      PeerVpcId: !Ref Branch1VPC
+      Tags:
+        - Key: Name
+          Value: SDWAN-VPC-Peering
+
+  ###############################################
+  # 3. Security Group
+  ###############################################
+
+  Router1SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Router 1
+      VpcId: !Ref ApplianceVPC
+      SecurityGroupIngress:
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: 47  # GRE
+          CidrIp: 172.20.16.5/32
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  Router2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Router 2
+      VpcId: !Ref Branch1VPC
+      SecurityGroupIngress:
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: 47  # GRE
+          CidrIp: 10.5.0.6/32
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+
+  ###############################################
+  # 4. ENIs
+  ###############################################
+
+  Router1ENI0:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      SubnetId: !Ref AppliancePublicSubnet
+      PrivateIpAddress: 10.5.0.5
+      GroupSet:
+        - !Ref Router1SecurityGroup
+      Tags:
+        - Key: Name
+          Value: Router1-ENI0
+
+  Router1ENI1:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      SubnetId: !Ref AppliancePublicSubnet
+      PrivateIpAddress: 10.5.0.6
+      GroupSet:
+        - !Ref Router1SecurityGroup
+      Tags:
+        - Key: Name
+          Value: Router1-ENI1
+
+  Router2ENI0:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      SubnetId: !Ref Branch1PublicSubnet
+      PrivateIpAddress: 172.20.0.5
+      GroupSet:
+        - !Ref Router2SecurityGroup
+      Tags:
+        - Key: Name
+          Value: Router2-ENI0
+
+  Router2ENI1:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      SubnetId: !Ref Branch1Subnet1
+      PrivateIpAddress: 172.20.16.5
+      GroupSet:
+        - !Ref Router2SecurityGroup
+      Tags:
+        - Key: Name
+          Value: Router2-ENI1
+
+  ###############################################
+  # 5. Elastic IPs and Associations
+  ###############################################
+
+  Router1EIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  Router2EIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  Router1EIPAssoc:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt Router1EIP.AllocationId
+      NetworkInterfaceId: !Ref Router1ENI0
+
+  Router2EIPAssoc:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt Router2EIP.AllocationId
+      NetworkInterfaceId: !Ref Router2ENI0
+
+  ###############################################
+  # 6. Router EC2 Instances (UserData will go here in next section)
+  ###############################################
+
+    # Section 6: EC2 Instances
+  
+  EdgeRouter1:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref AMI
+      IamInstanceProfile: !Ref InstanceProfile
+      NetworkInterfaces:
+        - NetworkInterfaceId: !Ref Router1ENI0
+          DeviceIndex: 0
+        - NetworkInterfaceId: !Ref Router1ENI1
+          DeviceIndex: 1
+      Tags:
+        - Key: Name
+          Value: "Third-Party Appliance"
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+
+          export DEBIAN_FRONTEND=noninteractive
+
+          apt-mark hold linux-aws linux-image-aws linux-headers-aws || true
+
+          echo "net.ipv4.ip_forward = 1" | sudo tee -a /etc/sysctl.conf
+          sudo sysctl -w net.ipv4.ip_forward=1
+          sudo sysctl -p
+
+          apt update && apt upgrade -y
+          apt install -y frr frr-pythontools traceroute tcpdump
+
+          ip tunnel add gre10 mode gre remote 172.20.16.5 local 10.5.0.6 ttl 255
+          ip link set gre10 up
+          ip addr add 192.168.255.1/30 dev gre10
+
+          sudo ip route add 172.20.16.5 via 10.5.0.1 dev ens6
+
+          hostnamectl set-hostname edge-router1
+          echo "hostname edge-router1" > /etc/frr/vtysh.conf
+
+          sed -i 's/bgpd=no/bgpd=yes/' /etc/frr/daemons
+          systemctl enable frr
+
+          cat <<EOF > /etc/frr/frr.conf
+          frr defaults traditional
+          hostname edge-router1
+          log syslog informational
+          service integrated-vtysh-config
+
+          route-map ALLOW_ALL permit 10
+
+          router bgp 65500
+              neighbor 192.168.255.2 remote-as 65501
+              neighbor 192.168.255.2 update-source gre10
+              neighbor 192.168.255.2 soft-reconfiguration inbound
+              address-family ipv4 unicast
+                  network 10.5.0.0/28
+                  neighbor 192.168.255.2 route-map ALLOW_ALL out
+                  neighbor 192.168.255.2 route-map ALLOW_ALL in
+              exit-address-family
+          EOF
+
+          systemctl restart frr
+
+
+  EdgeRouter2:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref AMI
+      IamInstanceProfile: !Ref InstanceProfile
+      NetworkInterfaces:
+        - NetworkInterfaceId: !Ref Router2ENI0
+          DeviceIndex: 0
+        - NetworkInterfaceId: !Ref Router2ENI1
+          DeviceIndex: 1
+      Tags:
+        - Key: Name
+          Value: "Branch1 Router"
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+
+          export DEBIAN_FRONTEND=noninteractive
+
+          apt-mark hold linux-aws linux-image-aws linux-headers-aws || true
+
+          echo "net.ipv4.ip_forward = 1" | sudo tee -a /etc/sysctl.conf
+          sudo sysctl -w net.ipv4.ip_forward=1
+          sudo sysctl -p
+
+          apt update && apt upgrade -y
+          apt install -y frr frr-pythontools traceroute tcpdump
+
+          ip tunnel add gre10 mode gre remote 10.5.0.6 local 172.20.16.5 ttl 255
+          ip link set gre10 up
+          ip addr add 192.168.255.2/30 dev gre10
+
+          sudo ip route add 10.5.0.6 via 172.20.16.1 dev ens6
+
+
+          hostnamectl set-hostname edge-router2
+          echo "hostname edge-router2" > /etc/frr/vtysh.conf
+
+          sed -i 's/bgpd=no/bgpd=yes/' /etc/frr/daemons
+          systemctl enable frr
+
+          cat <<EOF > /etc/frr/frr.conf
+          frr defaults traditional
+          hostname edge-router2
+          log syslog informational
+          service integrated-vtysh-config
+
+          route-map ALLOW_ALL permit 10
+
+          router bgp 65501
+              neighbor 192.168.255.1 remote-as 65500
+              neighbor 192.168.255.1 update-source gre10
+              neighbor 192.168.255.1 soft-reconfiguration inbound
+              address-family ipv4 unicast
+                  network 172.20.0.0/28
+                  network 172.20.16.0/20
+                  network 172.20.32.0/20
+                  redistribute connected
+                  neighbor 192.168.255.1 route-map ALLOW_ALL out
+                  neighbor 192.168.255.1 route-map ALLOW_ALL in
+              exit-address-family
+          EOF
+
+          ip rule add from 172.20.37.213 lookup 100
+          ip route add default via 192.168.255.1 dev gre10 table 100
+          systemctl restart frr
+
+
+Outputs:
+  ApplianceVPCId:
+    Description: VPC ID of Appliance VPC
+    Value: !Ref ApplianceVPC
+  Branch1VPC:
+    Description: VPC ID of Router2 VPC
+    Value: !Ref Branch1VPC
+  VPCPeeringConnectionId:
+    Description: Peering Connection ID
+    Value: !Ref VPCPeeringConnection
+  Router1PublicIP:
+    Value: !Ref Router1EIP
+  Router2PublicIP:
+    Value: !Ref Router2EIP

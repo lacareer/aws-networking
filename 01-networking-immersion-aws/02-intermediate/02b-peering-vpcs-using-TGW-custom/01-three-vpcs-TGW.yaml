@@ -1172,8 +1172,8 @@ Resources:
       MulticastSupport: enable #not needed here but used in a later lab
       DnsSupport: enable
       VpnEcmpSupport: enable
-      # Prevents attachments from being associated with an auto-generated default RTB and prevents default propagation of vpc cidr's
-      # Without which VPCsan error smilar to "Transit Gateway Attachment tgw-attach-00f79c3532cb83033 is already associated to a route table"
+      # Prevents attachments/association/propagation from being associated with an auto-generated default RTB and prevents default propagation of vpc cidr's
+      # Without which a VPCs error smilar to "Transit Gateway Attachment tgw-attach-00f79c3532cb83033 is already associated to a route table"   
       DefaultRouteTableAssociation: disable
       DefaultRouteTablePropagation: disable
       Tags:

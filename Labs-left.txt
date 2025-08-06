@@ -1,0 +1,19 @@
+1. https://catalog.workshops.aws/networking/en-US/foundational/connect-attachment/create-connect
+(/home/wsl/chuks-project-directory/aws-networking/01-networking-immersion-aws/02-intermediate/05-cloud-3rdparty-onprem)
+Code are then already. Just start from tyhe page to complete the manual processes and the rest of the Networking Immersion Day workshop
+
+2. Gateway load balancer: https://catalog.us-east-1.prod.workshops.aws/workshops/ae291640-10fe-4c0b-982f-9b9a61dbad26/en-US
+
+3. Network monitoring: https://catalog.workshops.aws/workshops/cf2ecaa4-e4be-4f40-b93f-e9fe3b1c1f64/en-US/introduction/1-aws-account
+
+4. Network firewalls 1:  https://catalog.workshops.aws/networkfirewall/en-US
+
+5. Network firewalls 2:  https://catalog.us-east-1.prod.workshops.aws/workshops/d071f444-e854-4f3f-98c8-025fa0d1de2f/en-US/lab-one/step-two
+
+6. Terraform: https://catalog.workshops.aws/terraform101/en-US/2-fundamentals
+
+7. Terraform cicd: https://catalog.workshops.aws/terraform-cicd-on-aws/en-US/2-getting-started/1-on-your-own-byo-aws-account
+
+8. Terraform managing aws resources: https://catalog.workshops.aws/manage-cloud-resources-with-terraform/en-US
+
+9. eks, catalog, and databases workshops

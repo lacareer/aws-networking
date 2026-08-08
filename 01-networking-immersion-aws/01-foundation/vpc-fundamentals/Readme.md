@@ -6,7 +6,7 @@ In this lab, you will learn how to set up a VPC with public and private subnets,
 **Warning**
 - Please complete the pre-requisites section in /networking-immersion-ws/Readme.md before continuing this lab.
 
-- In this workshop, we only created one NAT Gateway in AZ1. It is best practice to create a NAT Gateway in each AZ for each subnet that is utilized.
+- In this workshop, we only created one NAT Gateway in AZ1. It is best practice to create a NAT Gateway in each AZ for each subnet that is utilized as show in terraform code where each private subnet had its own NAT
 
 **Lab**
 - Use the lab pdf in this directory to completed the foundation lab  exercises. Or

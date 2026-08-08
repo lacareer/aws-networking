@@ -25,6 +25,8 @@ EC2 instance profile to define the IAM role that EC2 instances should use.
 IAM role for VPC Flowlogs
 An S3 bucket with the name networking-day-${AWS::Region}-${AWS::AccountId} that will be used to test VPC Endpoints
 
+(1) Deploy with Cloudformation
+
 - To get started, navigate to CloudFormation  section in the AWS console. Click Create stack button and select With new resources (standard).
 
 - Under Specify template, select Upload a template file, click Choose file and select the pre-requisites.yaml CloudFormation template that you downloaded. Click Next.
@@ -34,6 +36,16 @@ An S3 bucket with the name networking-day-${AWS::Region}-${AWS::AccountId} that 
 - Leave everything on this screen as is. Scroll down and click Next.
 
 - Select the checkbox to acknowledge the creation of IAM resources and click the Submit button.
+
+(2) Deploy Terraform
+
+- terraform fmt -recursive
+
+- terraform validate
+
+- terraform plan
+
+- terraform apply
 
 ***NEXT**
 

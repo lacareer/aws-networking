@@ -3,9 +3,20 @@ locals {
   vpc_tags         = var.vpc_tags
 }
 
+
+data "aws_availability_zones" "available" {
+  state = "available"
+}
+
+data "aws_caller_identity" "current" {}
+
+data "aws_region" "current" {}
+
 # Vpc resource
 resource "aws_vpc" "vpc" {
   cidr_block = local.vpc_network_info.vpc_a_cidr
+  enable_dns_support = true
+  enable_dns_hostnames = true
   tags       = local.vpc_tags
 }
 
@@ -13,6 +24,7 @@ resource "aws_vpc" "vpc" {
 resource "aws_subnet" "public_subnets" {
   count                   = local.vpc_network_info.subnet_count
   vpc_id                  = aws_vpc.vpc.id
+  availability_zone       = data.aws_availability_zones.available.names[count.index]
   map_public_ip_on_launch = true
   cidr_block              = local.vpc_network_info.vpc_a_pub_subnet[count.index]
   tags                    = merge(local.vpc_tags, { Name = "${var.vpc_name}_pub_subnet-${count.index + 1}" })
@@ -45,6 +57,7 @@ resource "aws_route" "public_internet_route" {
 resource "aws_subnet" "private_subnets" {
   count                   = local.vpc_network_info.subnet_count
   vpc_id                  = aws_vpc.vpc.id
+  availability_zone       = data.aws_availability_zones.available.names[count.index]
   map_public_ip_on_launch = false
   cidr_block              = local.vpc_network_info.vpc_a_priv_subnet[count.index]
   tags                    = merge(local.vpc_tags, { Name = "${var.vpc_name}_priv_subnet-${count.index + 1}" })
@@ -130,3 +143,22 @@ resource "aws_network_acl_association" "private_subnets" {
   subnet_id      = aws_subnet.private_subnets[count.index].id
 }
 
+# ─── VPC Endpoints ──
+# S3 Gateway Endpoint
+resource "aws_vpc_endpoint" "s3" {
+  vpc_id            = aws_vpc.vpc.id
+  service_name      = "com.amazonaws.${data.aws_region.current.region}.s3"
+  vpc_endpoint_type = "Gateway"
+  route_table_ids   = aws_route_table.private_route_table[*].id
+  tags              = merge(local.vpc_tags, { Name = "${var.vpc_name}_s3_endpoint" })
+}
+
+# KMS Interface Endpoint
+resource "aws_vpc_endpoint" "kms" {
+  vpc_id              = aws_vpc.vpc.id
+  service_name        = "com.amazonaws.${data.aws_region.current.region}.kms"
+  vpc_endpoint_type   = "Interface"
+  private_dns_enabled = true
+  subnet_ids          = aws_subnet.private_subnets[*].id
+  tags                = merge(local.vpc_tags, { Name = "${var.vpc_name}_kms_endpoint" })
+}

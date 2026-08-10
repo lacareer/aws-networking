@@ -57,7 +57,7 @@ module "ec2_instance" {
   ec2_egress     = local.ec2_egress_rule
   ec2_data       = local.ec2_instance_info
   vpc_cidr_range = module.vpc_a.custom_vpc_cidr_block
-  # uses eith the 2nd public subnet for the public instance and the 1st private subnet for the private instance
+  # uses either the 2nd public subnet for the public instance and the 1st private subnet for the private instance
   subnet_id = each.value == "public" ? module.vpc_a.custome_vpc_public_subnet_ids[1] : module.vpc_a.custome_vpc_private_subnet_ids[0]
 
   ec2_tags = merge(local.config_tags, { Name = each.value })

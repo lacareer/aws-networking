@@ -1,6 +1,7 @@
 #! /bin/bash
-sudo amazon-linux-extras install -y nginx1
-sudo service nginx start
+sudo dnf install -y nginx
+sudo systemctl start nginx
+sudo systemctl enable nginx
 sudo rm /usr/share/nginx/html/index.html
 sudo cat > /usr/share/nginx/html/index.html << 'WEBSITE'
 <html>
@@ -30,6 +31,11 @@ sudo cat > /usr/share/nginx/html/index.html << 'WEBSITE'
             <span style="color:#FFFFFF;">
                 <span style="font-size:100px;">Welcome to the ${environment} environment!</span>
             </span>
+            <span style="color:#FFFFFF;">
+                <span style="font-size:100px;">This is ${instance_name} with IP ${instance_ip}!</span>
+            </span>
+        </p>
+        <p style="text-align: center;">
             <span style="color:#FFFFFF;">
                 <span style="font-size:100px;">This is ${instance_name} with IP ${instance_ip}!</span>
             </span>

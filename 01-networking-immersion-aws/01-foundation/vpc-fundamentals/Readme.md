@@ -8,9 +8,9 @@ In this lab, you will learn how to set up a VPC with public and private subnets,
 
 - In this workshop, we only created one NAT Gateway in AZ1 (cloudformation). It is best practice to create a NAT Gateway in each AZ for each private subnet that is utilized as show in terraform V1/V2 code where each private subnet had its own NAT
 
-The Terraform code has version 1/2. While both works, version 1 is not dynamic and requires more line of code to create multiple VPC's for this learning while version 2 does not
+- The Terraform code has version 1/2. While both works, version 1 is not dynamic and requires more line of code to create multiple VPC's for this learning while version 2 does not
 
-Also the Terraform VPC endpoints are associated with both pivate subnets while the CFN code is only associated with one. The former is best and makes it available to both private subnets
+- Also the Terraform VPC endpoints are associated with both pivate subnets while the CFN code is only associated with one. The former is best and makes it available to both private subnets
 
 
 **Lab**

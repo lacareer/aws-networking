@@ -6,7 +6,7 @@ sudo rm /usr/share/nginx/html/index.html
 sudo cat > /usr/share/nginx/html/index.html << 'WEBSITE'
 <html>
 <head>
-    <title>Taco Team Server - ${environment}</title>
+    <title>chukky.com - ${environment}</title>
     <style>
         html, body {
             height: 100%;
@@ -30,9 +30,6 @@ sudo cat > /usr/share/nginx/html/index.html << 'WEBSITE'
         <p style="text-align: center;">
             <span style="color:#FFFFFF;">
                 <span style="font-size:100px;">Welcome to the ${environment} environment!</span>
-            </span>
-            <span style="color:#FFFFFF;">
-                <span style="font-size:100px;">This is ${instance_name} with IP ${instance_ip}!</span>
             </span>
         </p>
         <p style="text-align: center;">

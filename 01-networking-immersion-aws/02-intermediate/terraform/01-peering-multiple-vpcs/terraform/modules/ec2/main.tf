@@ -59,15 +59,15 @@ resource "aws_instance" "web" {
   user_data_replace_on_change = true
   user_data = templatefile("${path.module}/templates/ec2-user-data.tpl",
     {
-      environment = var.environment,
+      environment   = var.environment,
       instance_name = var.ec2_tags.Name,
-      instance_ip  = var.ec2_data[var.ec2_tags.Name].default
+      instance_ip   = var.ec2_data[var.ec2_tags.Name].default
   })
-  
+
   private_ip = var.ec2_data[var.ec2_tags.Name].default
 
 
   vpc_security_group_ids = [aws_security_group.allow_all_traffic.id]
 
-  tags = merge(local.instance_tags, { Name = "${var.ec2_tags.Name}-instance" })
+  tags = merge(local.instance_tags, { Name = "${var.ec2_tags.VPC_Name}-${var.ec2_tags.Name}-instance" })
 }

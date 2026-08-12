@@ -29,19 +29,22 @@ variable "vpcs" {
       subnet_count     = number
       pub_subnets      = list(string)
       priv_subnets     = list(string)
+      tgw_subnets      = list(string)
       dns_support      = bool
       hostname_support = bool
       tenancy          = string
     })
-    ec2_public = object({
+    ec2_public = optional(object({
       name              = string
       private_ip        = string
       ec2_instance_size = string
-    })
+    }), null)
     ec2_private = object({
       name              = string
       private_ip        = string
       ec2_instance_size = string
     })
+    create_public_ec2 = bool
+    # #create_private_ec2 = bool
   }))
 }

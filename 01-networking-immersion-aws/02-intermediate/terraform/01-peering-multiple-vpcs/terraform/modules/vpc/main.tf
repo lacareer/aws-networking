@@ -14,10 +14,10 @@ data "aws_region" "current" {}
 
 # Vpc resource
 resource "aws_vpc" "vpc" {
-  cidr_block = local.vpc_network_info.vpc_a_cidr
-  enable_dns_support = true
+  cidr_block           = local.vpc_network_info.vpc_cidr
+  enable_dns_support   = true
   enable_dns_hostnames = true
-  tags       = local.vpc_tags
+  tags                 = local.vpc_tags
 }
 
 # Public Subnet Resources with internet access
@@ -26,7 +26,7 @@ resource "aws_subnet" "public_subnets" {
   vpc_id                  = aws_vpc.vpc.id
   availability_zone       = data.aws_availability_zones.available.names[count.index]
   map_public_ip_on_launch = true
-  cidr_block              = local.vpc_network_info.vpc_a_pub_subnet[count.index]
+  cidr_block              = local.vpc_network_info.vpc_pub_subnet[count.index]
   tags                    = merge(local.vpc_tags, { Name = "${var.vpc_name}_pub_subnet-${count.index + 1}" })
 }
 
@@ -59,7 +59,7 @@ resource "aws_subnet" "private_subnets" {
   vpc_id                  = aws_vpc.vpc.id
   availability_zone       = data.aws_availability_zones.available.names[count.index]
   map_public_ip_on_launch = false
-  cidr_block              = local.vpc_network_info.vpc_a_priv_subnet[count.index]
+  cidr_block              = local.vpc_network_info.vpc_priv_subnet[count.index]
   tags                    = merge(local.vpc_tags, { Name = "${var.vpc_name}_priv_subnet-${count.index + 1}" })
 }
 
@@ -78,25 +78,26 @@ resource "aws_route_table_association" "private_route_table_association" {
 
 # Private connection from private to public subnets using NAT Gateway
 resource "aws_eip" "nat_eip" {
-  count  = local.vpc_network_info.subnet_count
+  count = var.multiple_nats == "yes" ? local.vpc_network_info.subnet_count : 1
+  # count  = local.vpc_network_info.subnet_count
   domain = "vpc"
   tags   = merge(local.vpc_tags, { Name = "${var.vpc_name}_nat_eip-${count.index + 1}" })
 }
 
 resource "aws_nat_gateway" "private_subnet_nat_gateway" {
-  count         = local.vpc_network_info.subnet_count
+  count = var.multiple_nats == "yes" ? local.vpc_network_info.subnet_count : 1
+  # count         = local.vpc_network_info.subnet_count
   allocation_id = aws_eip.nat_eip[count.index].id
-
   subnet_id     = aws_subnet.public_subnets[count.index].id
-
-  tags = merge(local.vpc_tags, { Name = "${var.vpc_name}_priv_subnet-${count.index + 1}-ngw" })
+  tags          = merge(local.vpc_tags, { Name = "${var.vpc_name}_priv_subnet-${count.index + 1}-ngw" })
   # To ensure proper ordering, it is recommended to add an explicit dependency
   # on the Internet Gateway for the VPC.
   depends_on = [aws_internet_gateway.public_subnet_igw]
 }
 
 resource "aws_route" "private_internet_route" {
-  count                  = local.vpc_network_info.subnet_count
+  count = var.multiple_nats == "yes" ? local.vpc_network_info.subnet_count : 1
+  # count                  = local.vpc_network_info.subnet_count
   route_table_id         = aws_route_table.private_route_table[count.index].id
   destination_cidr_block = "0.0.0.0/0"
   nat_gateway_id         = aws_nat_gateway.private_subnet_nat_gateway[count.index].id
@@ -118,11 +119,11 @@ resource "aws_network_acl_rule" "igress_rule" {
   rule_number    = 100
   protocol       = "-1"
   # egress         = false #do not add for ingress rules, as it will be ignored. Only add egress=true for egress rules.
-  rule_action    = "allow"
-  cidr_block     = "0.0.0.0/0"
+  rule_action = "allow"
+  cidr_block  = "0.0.0.0/0"
 }
 
-resource "aws_network_acl_rule" "Egress_rule" {
+resource "aws_network_acl_rule" "egress_rule" {
   network_acl_id = aws_network_acl.vpc_acl.id
   rule_number    = 100
   egress         = true
@@ -138,7 +139,8 @@ resource "aws_network_acl_association" "public_subnets" {
 }
 
 resource "aws_network_acl_association" "private_subnets" {
-  count          = local.vpc_network_info.subnet_count
+  count = var.multiple_nats == "yes" ? local.vpc_network_info.subnet_count : 1
+  # count          = local.vpc_network_info.subnet_count
   network_acl_id = aws_network_acl.vpc_acl.id
   subnet_id      = aws_subnet.private_subnets[count.index].id
 }
@@ -162,3 +164,77 @@ resource "aws_vpc_endpoint" "kms" {
   subnet_ids          = aws_subnet.private_subnets[*].id
   tags                = merge(local.vpc_tags, { Name = "${var.vpc_name}_kms_endpoint" })
 }
+
+## adding tgw resources
+# cretaes tgw subnets if tgw_subnets != []
+resource "aws_subnet" "tgw_subnets" {
+  count                   = length(local.vpc_network_info.tgw_subnets) > 0 && length(local.vpc_network_info.tgw_subnets) <= local.vpc_network_info.subnet_count ? length(local.vpc_network_info.tgw_subnets) : 0
+  vpc_id                  = aws_vpc.vpc.id
+  availability_zone       = data.aws_availability_zones.available.names[count.index]
+  map_public_ip_on_launch = true
+  cidr_block              = local.vpc_network_info.tgw_subnets[count.index]
+  tags                    = merge(local.vpc_tags, { Name = "${var.vpc_name}_tgw_subnet-${count.index + 1}" })
+}
+
+# creates one tgw route table if tgw_subnets != []
+resource "aws_route_table" "tgw_route_table" {
+  count  = length(local.vpc_network_info.tgw_subnets) > 0 && length(local.vpc_network_info.tgw_subnets) <= local.vpc_network_info.subnet_count ? 1 : 0
+  vpc_id = aws_vpc.vpc.id
+  tags   = merge(local.vpc_tags, { Name = "${var.vpc_name}_tgw_route_table" })
+}
+
+# associates tgw subnets with tgw route table if tgw_subnets != []
+resource "aws_route_table_association" "tgw_route_table_association" {
+  count          = length(local.vpc_network_info.tgw_subnets) > 0 && length(local.vpc_network_info.tgw_subnets) <= local.vpc_network_info.subnet_count ? length(local.vpc_network_info.tgw_subnets) : 0
+  subnet_id      = aws_subnet.tgw_subnets[count.index].id
+  route_table_id = aws_route_table.tgw_route_table[0].id
+}
+
+
+# creates tgw-nacl if tgw_subnets != []
+resource "aws_network_acl" "tgw_vpc_acl" {
+  count = length(local.vpc_network_info.tgw_subnets) > 0 && length(local.vpc_network_info.tgw_subnets) <= local.vpc_network_info.subnet_count ? 1 : 0
+  # count  = length(local.vpc_network_info.tgw_subnets) > 0 && length(local.vpc_network_info.tgw_subnets) <= local.vpc_network_info.subnet_count ? length(local.vpc_network_info.tgw_subnets) : 0
+  vpc_id = aws_vpc.vpc.id
+  tags   = merge(local.vpc_tags, { Name = "${var.vpc_name}_tgw_acl" })
+}
+
+# creates tgw-nacl ingress and egress rules if tgw_subnets != []
+resource "aws_network_acl_rule" "tgw_igress_rule" {
+  count = length(local.vpc_network_info.tgw_subnets) > 0 && length(local.vpc_network_info.tgw_subnets) <= local.vpc_network_info.subnet_count ? 1 : 0
+  # count          = length(local.vpc_network_info.tgw_subnets) > 0 && length(local.vpc_network_info.tgw_subnets) <= local.vpc_network_info.subnet_count ? length(local.vpc_network_info.tgw_subnets) : 0
+  network_acl_id = aws_network_acl.tgw_vpc_acl[0].id
+  rule_number    = 100
+  protocol       = "-1"
+  # egress         = false #do not add for ingress rules, as it will be ignored. Only add egress=true for egress rules.
+  rule_action = "allow"
+  cidr_block  = "0.0.0.0/0"
+}
+
+resource "aws_network_acl_rule" "tgw_egress_rule" {
+  count = length(local.vpc_network_info.tgw_subnets) > 0 && length(local.vpc_network_info.tgw_subnets) <= local.vpc_network_info.subnet_count ? 1 : 0
+  # count          = length(local.vpc_network_info.tgw_subnets) > 0 && length(local.vpc_network_info.tgw_subnets) <= local.vpc_network_info.subnet_count ? length(local.vpc_network_info.tgw_subnets) : 0
+  network_acl_id = aws_network_acl.tgw_vpc_acl[0].id
+  rule_number    = 100
+  egress         = true
+  protocol       = "-1"
+  rule_action    = "allow"
+  cidr_block     = "0.0.0.0/0"
+}
+
+# associates tgw subnets with tgw-nacl if tgw_subnets != []
+resource "aws_network_acl_association" "tgw_subnets_association" {
+  count          = length(local.vpc_network_info.tgw_subnets) > 0 && length(local.vpc_network_info.tgw_subnets) <= local.vpc_network_info.subnet_count ? length(local.vpc_network_info.tgw_subnets) : 0
+  network_acl_id = aws_network_acl.tgw_vpc_acl[0].id
+  subnet_id      = aws_subnet.tgw_subnets[count.index].id
+}
+
+##Note that there would not be any  connection between vpc b and vpc c because they were not paired.
+
+##VPC A and C peering connection. 
+
+
+
+##VPC A and C peering connection
+
+

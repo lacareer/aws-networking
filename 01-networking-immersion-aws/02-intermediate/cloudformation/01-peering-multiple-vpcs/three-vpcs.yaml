@@ -565,7 +565,7 @@ Resources:
       RouteTableId:
         Ref: PrivateSubnetRouteTableVPCB
 
-  #Transist gateway subnets in VPC B
+#Transist gateway subnets in VPC B
   AttachmentSubnetAVPCB:
     Type: AWS::EC2::Subnet
     DependsOn: 

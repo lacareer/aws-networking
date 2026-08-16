@@ -123,7 +123,7 @@ resource "aws_network_acl_rule" "igress_rule" {
   cidr_block  = "0.0.0.0/0"
 }
 
-resource "aws_network_acl_rule" "egress_rule" {
+resource "aws_network_acl_rule" "Egress_rule" {
   network_acl_id = aws_network_acl.vpc_acl.id
   rule_number    = 100
   egress         = true
@@ -164,71 +164,3 @@ resource "aws_vpc_endpoint" "kms" {
   subnet_ids          = aws_subnet.private_subnets[*].id
   tags                = merge(local.vpc_tags, { Name = "${var.vpc_name}_kms_endpoint" })
 }
-
-## adding tgw resources
-# cretaes tgw subnets if tgw_subnets != []
-resource "aws_subnet" "tgw_subnets" {
-  count                   = length(local.vpc_network_info.tgw_subnets) > 0 && length(local.vpc_network_info.tgw_subnets) <= local.vpc_network_info.subnet_count ? length(local.vpc_network_info.tgw_subnets) : 0
-  vpc_id                  = aws_vpc.vpc.id
-  availability_zone       = data.aws_availability_zones.available.names[count.index]
-  map_public_ip_on_launch = true
-  cidr_block              = local.vpc_network_info.tgw_subnets[count.index]
-  tags                    = merge(local.vpc_tags, { Name = "${var.vpc_name}_tgw_subnet-${count.index + 1}" })
-}
-
-# creates one tgw route table if tgw_subnets != []
-resource "aws_route_table" "tgw_route_table" {
-  count  = length(local.vpc_network_info.tgw_subnets) > 0 && length(local.vpc_network_info.tgw_subnets) <= local.vpc_network_info.subnet_count ? 1 : 0
-  vpc_id = aws_vpc.vpc.id
-  tags   = merge(local.vpc_tags, { Name = "${var.vpc_name}_tgw_route_table" })
-}
-
-# associates tgw subnets with tgw route table if tgw_subnets != []
-resource "aws_route_table_association" "tgw_route_table_association" {
-  count          = length(local.vpc_network_info.tgw_subnets) > 0 && length(local.vpc_network_info.tgw_subnets) <= local.vpc_network_info.subnet_count ? length(local.vpc_network_info.tgw_subnets) : 0
-  subnet_id      = aws_subnet.tgw_subnets[count.index].id
-  route_table_id = aws_route_table.tgw_route_table[0].id
-}
-
-
-# creates tgw-nacl if tgw_subnets != []
-resource "aws_network_acl" "tgw_vpc_acl" {
-  count = length(local.vpc_network_info.tgw_subnets) > 0 && length(local.vpc_network_info.tgw_subnets) <= local.vpc_network_info.subnet_count ? 1 : 0
-  # count  = length(local.vpc_network_info.tgw_subnets) > 0 && length(local.vpc_network_info.tgw_subnets) <= local.vpc_network_info.subnet_count ? length(local.vpc_network_info.tgw_subnets) : 0
-  vpc_id = aws_vpc.vpc.id
-  tags   = merge(local.vpc_tags, { Name = "${var.vpc_name}_tgw_acl" })
-}
-
-# creates tgw-nacl ingress and egress rules if tgw_subnets != []
-resource "aws_network_acl_rule" "tgw_igress_rule" {
-  count = length(local.vpc_network_info.tgw_subnets) > 0 && length(local.vpc_network_info.tgw_subnets) <= local.vpc_network_info.subnet_count ? 1 : 0
-  # count          = length(local.vpc_network_info.tgw_subnets) > 0 && length(local.vpc_network_info.tgw_subnets) <= local.vpc_network_info.subnet_count ? length(local.vpc_network_info.tgw_subnets) : 0
-  network_acl_id = aws_network_acl.tgw_vpc_acl[0].id
-  rule_number    = 100
-  protocol       = "-1"
-  # egress         = false #do not add for ingress rules, as it will be ignored. Only add egress=true for egress rules.
-  rule_action = "allow"
-  cidr_block  = "0.0.0.0/0"
-}
-
-resource "aws_network_acl_rule" "tgw_egress_rule" {
-  count = length(local.vpc_network_info.tgw_subnets) > 0 && length(local.vpc_network_info.tgw_subnets) <= local.vpc_network_info.subnet_count ? 1 : 0
-  # count          = length(local.vpc_network_info.tgw_subnets) > 0 && length(local.vpc_network_info.tgw_subnets) <= local.vpc_network_info.subnet_count ? length(local.vpc_network_info.tgw_subnets) : 0
-  network_acl_id = aws_network_acl.tgw_vpc_acl[0].id
-  rule_number    = 100
-  egress         = true
-  protocol       = "-1"
-  rule_action    = "allow"
-  cidr_block     = "0.0.0.0/0"
-}
-
-# associates tgw subnets with tgw-nacl if tgw_subnets != []
-resource "aws_network_acl_association" "tgw_subnets_association" {
-  count          = length(local.vpc_network_info.tgw_subnets) > 0 && length(local.vpc_network_info.tgw_subnets) <= local.vpc_network_info.subnet_count ? length(local.vpc_network_info.tgw_subnets) : 0
-  network_acl_id = aws_network_acl.tgw_vpc_acl[0].id
-  subnet_id      = aws_subnet.tgw_subnets[count.index].id
-}
-
-
-
-

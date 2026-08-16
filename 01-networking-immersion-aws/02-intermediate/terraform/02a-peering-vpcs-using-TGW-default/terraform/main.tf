@@ -36,7 +36,6 @@ module "vpc" {
     subnet_count     = each.value.networking_config.subnet_count
     vpc_pub_subnet   = each.value.networking_config.pub_subnets
     vpc_priv_subnet  = each.value.networking_config.priv_subnets
-    tgw_subnets      = each.value.networking_config.tgw_subnets
     dns_support      = each.value.networking_config.dns_support
     hostname_support = each.value.networking_config.hostname_support
     tenancy          = each.value.networking_config.tenancy
@@ -49,13 +48,13 @@ module "vpc" {
 module "ec2_public" {
   for_each       = { for k, v in var.vpcs : k => v if v.create_public_ec2 } #if condition acts as a filter and allows creates public EC2 instances only for VPCs where create_public_ec2 is true
   source         = "./modules/ec2"
-  vpc_id         = module.vpc[each.key].custom_vpc_id
+  vpc_id         = module.vpc[each.key].custome_vpc_id
   vpc_cidr_range = module.vpc[each.key].custom_vpc_cidr_block
-  subnet_id      = module.vpc[each.key].custom_vpc_public_subnet_ids[1]
+  subnet_id      = module.vpc[each.key].custome_vpc_public_subnet_ids[1]
   ec2_ingress    = local.ec2_ingress_rule
   ec2_egress     = local.ec2_egress_rule
   ec2_tags       = merge(local.config_tags, { Name = "${local.ec2_classification[0]}" }, { VPC_Name = "${module.vpc[each.key].vpc_tags.Name}" })
-  # pair_cidrs = each.value.networking_config.pair_cidrs
+
   ec2_data = {
     classification = local.ec2_classification
     public         = { name = each.value.ec2_public.name, default = each.value.ec2_public.private_ip, ec2_instance_size = each.value.ec2_public.ec2_instance_size }
@@ -67,9 +66,9 @@ module "ec2_public" {
 module "ec2_private" {
   for_each       = var.vpcs
   source         = "./modules/ec2"
-  vpc_id         = module.vpc[each.key].custom_vpc_id
+  vpc_id         = module.vpc[each.key].custome_vpc_id
   vpc_cidr_range = module.vpc[each.key].custom_vpc_cidr_block
-  subnet_id      = module.vpc[each.key].custom_vpc_private_subnet_ids[0]
+  subnet_id      = module.vpc[each.key].custome_vpc_private_subnet_ids[0]
   ec2_ingress    = local.ec2_ingress_rule
   ec2_egress     = local.ec2_egress_rule
   ec2_tags       = merge(local.config_tags, { Name = "${local.ec2_classification[1]}" }, { VPC_Name = "${module.vpc[each.key].vpc_tags.Name}" })
@@ -80,15 +79,5 @@ module "ec2_private" {
     public  = each.value.ec2_public != null ? { name = each.value.ec2_public.name, default = each.value.ec2_public.private_ip, ec2_instance_size = each.value.ec2_public.ec2_instance_size } : { name = "", default = "", ec2_instance_size = "" }
     private = { name = each.value.ec2_private.name, default = each.value.ec2_private.private_ip, ec2_instance_size = each.value.ec2_private.ec2_instance_size }
   }
-}
-
-# peering the vpcs together using the private subnets of each vpc. 
-# The next exercise uses the tgw_subnets of each vpc to create a transit gateway and attach the vpcs to create interconnectivity.
-# The public subnets are not used for peering, but they can be used for other purposes such as hosting public-facing services or applications.
-module "vpc_ab_peering" {
-  source            = "./modules/vpc_peering"
-  all_vpc_details   = { for k, v in module.vpc : k => v.custom_vpc_details }
-  vpcs_to_pair_with = toset(var.vpc_peering_list["vpc_a"])
-
 }
 

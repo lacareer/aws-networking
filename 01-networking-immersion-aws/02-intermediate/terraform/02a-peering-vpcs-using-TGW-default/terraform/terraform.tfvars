@@ -1,13 +1,11 @@
 vpcs = {
   vpc_a = {
     networking_config = {
-      vpc_cidr     = "10.0.0.0/16"
-      subnet_count = 2
-      pub_subnets  = ["10.0.0.0/24", "10.0.2.0/24"]
-      priv_subnets = ["10.0.1.0/24", "10.0.3.0/24"]
-      tgw_subnets  = []
-      # tgw_subnets      = ["10.0.5.0/28", "10.0.5.16/28"]
-      # pair_cidrs       = ["10.1.1.0/24", "10.1.3.0/24"]
+      vpc_cidr         = "10.0.0.0/16"
+      subnet_count     = 2
+      pub_subnets      = ["10.0.0.0/24", "10.0.2.0/24"]
+      priv_subnets     = ["10.0.1.0/24", "10.0.3.0/24"]
+      # tgw_subnets     = ["10.0.5.0/28", "10.0.5.16/28"]
       dns_support      = true
       hostname_support = true
       tenancy          = "default"
@@ -23,7 +21,7 @@ vpcs = {
       subnet_count     = 2
       pub_subnets      = ["10.1.0.0/24", "10.1.2.0/24"]
       priv_subnets     = ["10.1.1.0/24", "10.1.3.0/24"]
-      tgw_subnets      = ["10.1.5.0/28", "10.1.5.16/28"]
+      # tgw_subnets     = ["10.1.5.0/28", "10.1.5.16/28"]
       dns_support      = true
       hostname_support = true
       tenancy          = "default"
@@ -40,7 +38,7 @@ vpcs = {
       subnet_count     = 2
       pub_subnets      = ["10.2.0.0/24", "10.2.2.0/24"]
       priv_subnets     = ["10.2.1.0/24", "10.2.3.0/24"]
-      tgw_subnets      = ["10.2.5.0/28", "10.2.5.16/28"]
+      # tgw_subnets     = ["10.2.5.0/28", "10.2.5.16/28"]
       dns_support      = true
       hostname_support = true
       tenancy          = "default"
@@ -50,14 +48,4 @@ vpcs = {
     ec2_private       = { name = "ec2_private", private_ip = "10.2.1.100", ec2_instance_size = "t3.micro" }
     create_public_ec2 = false
   }
-}
-
-vpc_peering_list = {
-  "vpc_a" = ["vpc_b", "vpc_c"]
-  ##Bcs vpc is birectional, vpc_b and vpc_c will also have vpc_a in their list of vpcs to pair with. 
-  ##This is to ensure that the peering connection is established in both directions.
-  ##So,the below is comment out as it will try to create a peering connection from vpc_b to vpc_a and vpc_c to vpc_a, which is not needed as the peering connection is already established from vpc_a to vpc_b and vpc_c.
-
-  # "vpc_b" = ["vpc_a"] #not conncted to vpc_c, so not included in the list
-  # "vpc_c" = ["vpc_a"] #not conncted to vpc_b, so not included in the list
 }

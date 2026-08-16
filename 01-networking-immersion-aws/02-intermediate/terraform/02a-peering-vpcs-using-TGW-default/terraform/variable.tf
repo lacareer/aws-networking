@@ -25,12 +25,11 @@ variable "vpcs" {
   description = "Map of VPCs to create"
   type = map(object({
     networking_config = object({
-      vpc_cidr     = string
-      subnet_count = number
-      pub_subnets  = list(string)
-      priv_subnets = list(string)
-      tgw_subnets  = list(string)
-      # pair_cidrs       = list(string)
+      vpc_cidr         = string
+      subnet_count     = number
+      pub_subnets      = list(string)
+      priv_subnets     = list(string)
+      # tgw_subnets     = list(string)
       dns_support      = bool
       hostname_support = bool
       tenancy          = string
@@ -48,9 +47,4 @@ variable "vpcs" {
     create_public_ec2 = bool
     # #create_private_ec2 = bool
   }))
-}
-
-variable "vpc_peering_list" {
-  description = "Map of VPC peering groups"
-  type        = map(list(string))
 }

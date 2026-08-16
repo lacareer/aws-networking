@@ -1,23 +1,13 @@
-# output "vpc_a_id" {
-#   value = module.vpc_a.custome_vpc_id
-# }
+#output each vpc details
+output "vpc_peering_details" {
+  value = { for k, v in module.vpc : k => v.custom_vpc_details }
+}
 
-# output "vpc_a_cidr_block" {
-#   value = module.vpc_a.custom_vpc_cidr_block
-# }
+#output each ec2 public instance details
+output "ec2_public_details" {
+  value = { for k, v in module.ec2_public : k => v.ec2_info.public }
+}
 
-# output "custome_vpc_public_subnet_ids" {
-#   value = module.vpc_a.custome_vpc_public_subnet_ids
-# }
-
-# output "custome_vpc_private_subnet_ids" {
-#   value = module.vpc_a.custome_vpc_private_subnet_ids
-# }
-
-# output "custome_vpc_public_route_table_ids" {
-#   value = module.vpc_a.custome_vpc_public_route_table_ids
-# }
-
-# output "custome_vpc_private_route_table_ids" {
-#   value = module.vpc_a.custome_vpc_private_route_table_ids
-# }
+output "ec2_private_details" {
+  value = { for k, v in module.ec2_private : k => v.ec2_info.private }
+}

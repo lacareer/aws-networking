@@ -30,7 +30,7 @@ Parameters:
     ConstraintDescription: must be a valid IP address of the form x.x.x.x/32.
 
 Resources:
-  # VPC A Resources
+# VPC A Resources
   VpcA:
     Type: AWS::EC2::VPC
     Properties:
@@ -351,7 +351,7 @@ Resources:
       VpcEndpointType: 'Interface'
       VpcId: !Ref VpcA
 
-  # VPC B Resources
+# VPC B Resources
   VPCB:
     Type: AWS::EC2::VPC
     Properties:

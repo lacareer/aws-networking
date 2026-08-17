@@ -1228,7 +1228,7 @@ Resources:
         - Key: Name
           Value: VPC C Attachment
   
-  # TGW RTB
+# TGW RTB
   VPCsTransitGatewayRouteTable:
     Type: AWS::EC2::TransitGatewayRouteTable
     Properties:
@@ -1243,7 +1243,7 @@ Resources:
   # OK because we do not want connection between VPC B/C.
   # If connection is required, add their association as shown in the commented code
 
-  # TGW RTB Association
+# TGW RTB Association
   VPCsTGWRouteTableAssociationA:
     Type: AWS::EC2::TransitGatewayRouteTableAssociation
     Properties:

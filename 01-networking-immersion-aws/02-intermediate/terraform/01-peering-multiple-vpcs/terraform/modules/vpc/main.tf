@@ -166,7 +166,7 @@ resource "aws_vpc_endpoint" "kms" {
 }
 
 ## adding tgw resources
-# cretaes tgw subnets if tgw_subnets != []
+# creates tgw subnets if tgw_subnets != []
 resource "aws_subnet" "tgw_subnets" {
   count                   = length(local.vpc_network_info.tgw_subnets) > 0 && length(local.vpc_network_info.tgw_subnets) <= local.vpc_network_info.subnet_count ? length(local.vpc_network_info.tgw_subnets) : 0
   vpc_id                  = aws_vpc.vpc.id

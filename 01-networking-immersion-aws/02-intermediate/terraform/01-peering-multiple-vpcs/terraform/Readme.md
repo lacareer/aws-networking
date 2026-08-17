@@ -98,3 +98,23 @@
         })
       }
     }
+
+***Testing Connections***
+
+- Connections from VPC A --> VPC B and VPC A --> VPC C
+  From private server EC2 Instance, in VPC A, running the below should return a successful ping:
+
+    ping 10.1.1.100 -c 5 
+    ping 10.2.1.100 -c 5
+
+- Connections from VPC B --> VPC C and VPC B --> VPC A
+  From private server EC2 Instance, in VPC B, running the below should return a successful ping:
+
+    ping 10.2.1.100 -c 5
+    ping 10.0.1.100 -c 5 
+
+- Connections from VPC C --> VPC B and VPC C --> VPC A
+  From private server EC2 Instance, in VPC B, running the below should return a successful ping:
+
+    ping 10.1.1.100 -c 5
+    ping 10.0.1.100 -c 5     

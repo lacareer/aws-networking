@@ -23,5 +23,10 @@ variable "vpcs_to_pair_with" {
   description = "A list of VPCs that are being peered with another VPC."
 }
 
+variable "agregated_route" {
+  type        = list(string)
+  description = "The aggregated route that is being advertised to the peered VPCs."
+}
+
 
 

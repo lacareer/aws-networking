@@ -87,6 +87,7 @@ module "vpc_tgw_peering" {
   source            = "./modules/vpc_with_tgw_custom_rtb"
   all_vpc_details   = { for k, v in module.vpc : k => v.custom_vpc_details }
   vpcs_to_pair_with = toset(var.vpc_peering_list["vpcs"])
+  agregated_route   = var.vpc_peering_list["aggregated_route"]
 
 }
 

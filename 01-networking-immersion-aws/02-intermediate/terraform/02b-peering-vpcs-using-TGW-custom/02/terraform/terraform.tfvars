@@ -51,11 +51,6 @@ vpcs = {
 }
 
 vpc_peering_list = {
-  "vpcs" = ["vpc_a", "vpc_b", "vpc_c"]
-  ##Bcs vpc is birectional, vpc_b and vpc_c will also have vpc_a in their list of vpcs to pair with. 
-  ##This is to ensure that the peering connection is established in both directions.
-  ##So,the below is comment out as it will try to create a peering connection from vpc_b to vpc_a and vpc_c to vpc_a, which is not needed as the peering connection is already established from vpc_a to vpc_b and vpc_c.
-
-  # "vpc_b" = ["vpc_a"] #not conncted to vpc_c, so not included in the list
-  # "vpc_c" = ["vpc_a"] #not conncted to vpc_b, so not included in the list
+  "vpcs"             = ["vpc_a", "vpc_b", "vpc_c"]
+  "aggregated_route" = ["10.0.0.0/8"]
 }

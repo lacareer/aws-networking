@@ -5,61 +5,8 @@ The best practice for connecting VPCs to Transit Gateway is to use a dedicated /
 
 <!-- This config peers vpc together without using a transit gateway -->
 # Changes made the infra
-<!-- - The vpc_with_tgw_custom_rtb module uses custom rtb for creating inter-vpc connectivity and does not use the default vpc rtb
-- A new rtb for the TGW using this code below.  
-    
-    ### NEW CODE ADDED TO CREATE A CUSTOM TGW ROUTE TABLE AND ADD ROUTES TO EACH VPC PRIVATE SUBNETS FOR INTERCONNECTIVITY ###
-    # TGW rtb for vpc a, b, and c
-    resource "aws_ec2_transit_gateway_route_table" "vpc_abc_tgw_rtb" {
-      transit_gateway_id = aws_ec2_transit_gateway.vpc_abc_tgw.id
-      tags = {
-        Name = "vpc_abc_tgw-rtb"
-      }
-    }
-
-    # adding each vpc attachment for vpc a, b, and c to the tgw rtb
-    resource "aws_ec2_transit_gateway_route_table_association" "vpc_abc_tgw_rtb_association" {
-      for_each                       = aws_ec2_transit_gateway_vpc_attachment.vpc_abc_tgw_attachment
-      transit_gateway_attachment_id  = each.value.id
-      transit_gateway_route_table_id = aws_ec2_transit_gateway_route_table.vpc_abc_tgw_rtb.id
-    }
-
-    # adds vpc_b and vpc_c cidrs to vpc_a tgw rtb for interconnectivity
-    resource "aws_route" "vpc_a_tgw_rtb_route_to_vpc_bc" {
-      for_each               = { for k, v in var.all_vpc_details : k => v if k != var.vpcs_to_pair_with[0] }
-      route_table_id         = var.all_vpc_details[var.vpcs_to_pair_with[0]].private_tgw_rtb[0]
-      destination_cidr_block = each.value.vpc_cidr_block
-      transit_gateway_id     = aws_ec2_transit_gateway.vpc_abc_tgw.id
-    }
-
-    # adds vpc_a and vpc_c cidrs to vpc_b tgw rtb for interconnectivity
-    # To add vpc_c cidrs to vpc_b private rtbs and create interconnectivity, use the commented loops/conditions instead
-    resource "aws_route" "vpc_b_tgw_rtb_route_to_vpc_ac" {
-      # for_each               = { for k, v in var.all_vpc_details : k => v if k != var.vpcs_to_pair_with[1] }
-      for_each               = { for k, v in var.all_vpc_details : k => v if k != var.vpcs_to_pair_with[1] && k != var.vpcs_to_pair_with[2] }
-      route_table_id         = var.all_vpc_details[var.vpcs_to_pair_with[1]].private_tgw_rtb[0]
-      destination_cidr_block = each.value.vpc_cidr_block
-      transit_gateway_id     = aws_ec2_transit_gateway.vpc_abc_tgw.id
-    }
-
-    # adds vpc_a and vpc_b cidrs to vpc_c tgw rtb for interconnectivity
-    # To add vpc_b cidrs to vpc_c private routes and create interconnectivity, use the commented loops/conditions instead
-    resource "aws_route" "vpc_c_tgw_rtb_route_to_vpc_ab" {
-      # for_each               = { for k, v in var.all_vpc_details : k => v if k != var.vpcs_to_pair_with[2] }
-      for_each               = { for k, v in var.all_vpc_details : k => v if k != var.vpcs_to_pair_with[1] && k != var.vpcs_to_pair_with[2] }
-      route_table_id         = var.all_vpc_details[var.vpcs_to_pair_with[2]].private_tgw_rtb[0]
-      destination_cidr_block = each.value.vpc_cidr_block
-      transit_gateway_id     = aws_ec2_transit_gateway.vpc_abc_tgw.id
-    }
-
-    # propagates the vpc attachments to the tgw rtb for vpc a, b, and c
-    resource "aws_ec2_transit_gateway_route_table_propagation" "vpc_abc_tgw_attachment_propagation" {
-      for_each                       = aws_ec2_transit_gateway_vpc_attachment.vpc_abc_tgw_attachment
-      transit_gateway_attachment_id  = each.value.id
-      transit_gateway_route_table_id = aws_ec2_transit_gateway_route_table.vpc_abc_tgw_rtb.id
-    }
-    ### END OF NEW CODE ADDED TO CREATE A CUSTOM TGW ROUTE TABLE AND ADD ROUTES TO EACH VPC PRIVATE SUBNETS FOR INTERCONNECTIVITY ### -->
-
+- Added a new node, aggregated_route, to the variable vpc_peering_list with a 10.0.0.0/8 value in terraform.tfvars
+- This value is passed to the module "vpc_tgw_peering"
 
 # vpc_peering module input variable vpcs_to_pair_with is assigned the value of root module input vpc_peering_list variable show below
 
@@ -162,19 +109,19 @@ The best practice for connecting VPCs to Transit Gateway is to use a dedicated /
 - Connections from VPC A --> VPC B and VPC A --> VPC C
   From private server EC2 Instance, in VPC A, running the below should return a successful ping:
 
-    ping 10.1.1.100 -c 5 
-    ping 10.2.1.100 -c 5
+    ping 10.1.1.100 -c 2 
+    ping 10.2.1.100 -c 2
 
 - Connections from VPC B --> VPC C and VPC B --> VPC A
   From private server EC2 Instance, in VPC B, running the below should return a successful ping:
 
-    ping 10.2.1.100 -c 5
-    ping 10.0.1.100 -c 5 
+    ping 10.2.1.100 -c 2
+    ping 10.0.1.100 -c 2 
 
 - Connections from VPC C --> VPC B and VPC C --> VPC A
   From private server EC2 Instance, in VPC B, running the below should return a successful ping:
 
-    ping 10.1.1.100 -c 5
-    ping 10.0.1.100 -c 5 
+    ping 10.1.1.100 -c 2
+    ping 10.0.1.100 -c 2 
    
 

@@ -8,6 +8,8 @@ The best practice for connecting VPCs to Transit Gateway is to use a dedicated /
 - Also added code for a Transit Gateway, its attachment to VPC A, B, and C using the two private TGW subnets of each VPC (one in u-east-1 and the other in us-east-2) for each VPC. 
 - The vpc_with_tgw_default module uses default rtb for creating inter-vpc connectivity without creating a custom rtb for TGW
 
+Look at the default TGW aasociation, Propagation, and Routes. As you will see, the Transit Gateway automatically associates newly attached VPCs to the default route table and propagates routes from the VPCs into the Transit Gateway Route Table. This makes it very easy for VPCs to have connectivity to other VPCs.
+
 
 # vpc_peering module input variable vpcs_to_pair_with is assigned the value of root module input vpc_peering_list variable show below
 

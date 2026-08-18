@@ -1,3 +1,4 @@
+# NOTE THAT THE BELOW WAS NOT IMPLEMENTED AS IT VERY SELF-EXPLANATORY AND DIRECT. READING THE CONTENT BELOW SHOULD SUFFICE
  <!-- Network ACLs -->
 Network ACLs are stateless access controls you configure at a subnet level, to allow or block a CIDR block on a particular port or range of ports. Network ACL rules are numbered list and evaluated top down, with a DENY ALL at the end. If a rule is matched, subsequent rules are not evaluated.
 

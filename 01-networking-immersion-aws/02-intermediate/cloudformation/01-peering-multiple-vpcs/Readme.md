@@ -1,3 +1,6 @@
+# Note that NACL was not applied to VPC B AND C public and private subnets and VPC A TGW Subnets
+# Look to the 04-onPrem-connection/aws-cloud-network.yaml lab where was added
+
 <!-- VPC Fundamentals -->
 Amazon Virtual Private Cloud (Amazon VPC) lets you provision a logically isolated section of the AWS Cloud where you can launch AWS resources in a virtual network that you define. You have complete control over your virtual networking environment, including selection of your own IP address range, creation of subnets, and configuration of route tables and network gateways. You can use both IPv4 and IPv6 in your VPC for secure and easy access to resources and applications.
 

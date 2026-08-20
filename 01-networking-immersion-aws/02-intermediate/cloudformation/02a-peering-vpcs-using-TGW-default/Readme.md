@@ -1,3 +1,8 @@
+# Note that NACL was not applied to VPC B AND C public and private subnets and VPC A TGW Subnets
+# Look to the 04-onPrem-connection/aws-cloud-network.yaml lab where was added
+
+
+
 ***File differences ***
 02-peering-vpcs-using-TGW-default/three-vpcs-TGW-1.yaml uses the default TGW table created, when you don't create a custom TGW rtb. The Transit Gateway automatically associates newly attached VPCs to the default route table and propagates routes from the VPCs into the Transit Gateway Route Table. This makes it very easy for VPCs to have connectivity to other VPCs. 
 

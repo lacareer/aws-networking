@@ -30,7 +30,7 @@ Parameters:
     ConstraintDescription: must be a valid IP address of the form x.x.x.x/32.
 
 Resources:
-  # VPC A Resources
+# VPC A Resources
   VpcA:
     Type: AWS::EC2::VPC
     Properties:
@@ -147,7 +147,7 @@ Resources:
     Properties:
       RouteTableId: !Ref VpcAPrivateSubnetRouteTable
       SubnetId: !Ref VpcAPrivateSubnet2
-
+ 
   VpcAWorkloadSubnetsNacl:
     Type: AWS::EC2::NetworkAcl
     DependsOn: VpcA
@@ -210,6 +210,24 @@ Resources:
       - VpcAWorkloadSubnetsNacl
     Properties:
       SubnetId: !Ref VpcAPrivateSubnet2
+      NetworkAclId: !Ref VpcAWorkloadSubnetsNacl
+
+  VpcANetworkAclAssociationTgwPrivateSubnet1:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    DependsOn: 
+      - VpcATgwSubnet1
+      - VpcAWorkloadSubnetsNacl
+    Properties:
+      SubnetId: !Ref VpcATgwSubnet1
+      NetworkAclId: !Ref VpcAWorkloadSubnetsNacl
+
+  VpcANetworkAclAssociationTgwPrivateSubnet2:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    DependsOn: 
+      - VpcATgwSubnet2
+      - VpcAWorkloadSubnetsNacl
+    Properties:
+      SubnetId: !Ref VpcATgwSubnet2
       NetworkAclId: !Ref VpcAWorkloadSubnetsNacl
 
   VpcAInternetGateway:
@@ -351,7 +369,7 @@ Resources:
       VpcEndpointType: 'Interface'
       VpcId: !Ref VpcA
 
-  # VPC B Resources
+# VPC B Resources
   VPCB:
     Type: AWS::EC2::VPC
     Properties:
@@ -619,7 +637,7 @@ Resources:
       VpcId: !Ref VPCB
       Tags:
         - Key: Name
-          Value: "VPC B TGW Subnet NACL"
+          Value: "VPC B Subnet NACL"
 
   NetworkAclAttachmentSubnetsInboundRuleVPCB:
     Type: AWS::EC2::NetworkAclEntry
@@ -641,6 +659,42 @@ Resources:
       Egress: true
       RuleAction: allow
       CidrBlock: 0.0.0.0/0
+
+  SubnetNetworkAclAssociationPublicSubnet1VPCB:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    DependsOn:
+      - PublicSubnet1VPCB
+      - NetworkAclAttachmentSubnetsVPCB
+    Properties:
+      SubnetId: !Ref PublicSubnet1VPCB
+      NetworkAclId: !Ref NetworkAclAttachmentSubnetsVPCB
+
+  SubnetNetworkAclAssociationPublicSubnet2VPCB:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    DependsOn:
+      - PublicSubnet2VPCB
+      - NetworkAclAttachmentSubnetsVPCB
+    Properties:
+      SubnetId: !Ref PublicSubnet2VPCB
+      NetworkAclId: !Ref NetworkAclAttachmentSubnetsVPCB
+
+  SubnetNetworkAclAssociationPrivateSubnet1VPCB:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    DependsOn:
+      - PrivateSubnet1VPCB
+      - NetworkAclAttachmentSubnetsVPCB
+    Properties:
+      SubnetId: !Ref PrivateSubnet1VPCB
+      NetworkAclId: !Ref NetworkAclAttachmentSubnetsVPCB
+
+  SubnetNetworkAclAssociationPrivateSubnet2VPCB:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    DependsOn:
+      - PrivateSubnet2VPCB
+      - NetworkAclAttachmentSubnetsVPCB
+    Properties:
+      SubnetId: !Ref PrivateSubnet2VPCB
+      NetworkAclId: !Ref NetworkAclAttachmentSubnetsVPCB
 
   SubnetNetworkAclAssociationAttachmentSubnetAVPCB:
     Type: AWS::EC2::SubnetNetworkAclAssociation
@@ -703,7 +757,7 @@ Resources:
         - Key: Name
           Value: "VPC B Private AZ1 Server"
 
-  # VPC C Resources
+# VPC C Resources
   VPCC:
     Type: AWS::EC2::VPC
     Properties:
@@ -1019,6 +1073,53 @@ Resources:
        RuleAction: allow
        CidrBlock: 0.0.0.0/0
 
+  
+  SubnetNetworkAclAssociationPublicSubnet1VPCC:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    DependsOn: 
+      - PublicSubnet1VPCC
+      - NetworkAclAttachmentSubnetsVPCC
+    Properties:
+      SubnetId:
+        Ref: PublicSubnet1VPCC
+      NetworkAclId:
+        Ref: NetworkAclAttachmentSubnetsVPCC 
+  
+  SubnetNetworkAclAssociationPublicSubnet2VPCC:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    DependsOn: 
+      - PublicSubnet2VPCC
+      - NetworkAclAttachmentSubnetsVPCC
+    Properties:
+      SubnetId:
+        Ref: PublicSubnet2VPCC
+      NetworkAclId:
+        Ref: NetworkAclAttachmentSubnetsVPCC 
+               
+  SubnetNetworkAclAssociationPrivateSubnet1VPCC:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    DependsOn: 
+      - PrivateSubnet1VPCC
+      - NetworkAclAttachmentSubnetsVPCC
+    Properties:
+      SubnetId:
+        Ref: PrivateSubnet1VPCC
+      NetworkAclId:
+        Ref: NetworkAclAttachmentSubnetsVPCC
+
+  SubnetNetworkAclAssociationPrivateSubnet2VPCC:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    DependsOn: 
+      - PrivateSubnet2VPCC
+      - NetworkAclAttachmentSubnetsVPCC
+    Properties:
+      SubnetId:
+        Ref: PrivateSubnet2VPCC
+      NetworkAclId:
+        Ref: NetworkAclAttachmentSubnetsVPCC
+
+
+
   SubnetNetworkAclAssociationAttachmentSubnetAVPCC:
     Type: AWS::EC2::SubnetNetworkAclAssociation
     DependsOn: 
@@ -1246,7 +1347,7 @@ Resources:
       TransitGatewayId: !Ref TransitGateway
 
 
-
+## outputs
 Outputs:
 # VPC A Outputs
   VpcA:

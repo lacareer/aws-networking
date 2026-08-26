@@ -1,6 +1,4 @@
-<!-- Connecting to On-Premises -->
-Please note, this module is optional and is not required to be completed to proceed with this workshop. You may skip to Network Monitoring
-Amazon Virtual Private Cloud (Amazon VPC) provides multiple options to integrate existing data center networks with your AWS VPCs, including AWS Managed Site-to-site (IPsec) VPNs and Direct Connect connections. AWS VPN connections provide up to 1.25gbps of throughput per tunnel. When used in conjunction with the Transit Gateway, AWS VPN supports Equal-Cost Multipathing (ECMP) to allow you to scale VPN throughput.
+<!-- Connecting AWS VPC to On-Premises network-->
 
 In this lab, we will be standing up a simulated data center environment and connecting it with the existing Transit Gateway that was set up in the "Multiple VPCs" lab. Recall that at the end of that lab, we had provisioned 3 AWS VPCs and EC2 instances in each VPC. The VPCs were interconnected using Transit Gateway.
 
@@ -16,9 +14,24 @@ To build out our simulated data center environment and connect it to our AWS env
 
 ***Deployment***
 
-- Deploy  the Cloudformation templates in the list order because we will use the exported values  for our on-prem stack. 
-  
-  1. aws-cloud-network.yaml 
-  2. onprem-network.yaml
+- Deploy  the Cloudformation templates in this order because we will use the exported values. 
+  1. pre-requisites.yaml
+  2. aws-cloud-network.yaml 
+  3. onprem-network.yaml
+  4. onprem-aws-interconnectivity.yaml
 
-- Follow the lab instruction from "Update Route Tables with On-Premise CIDR" section to complete connecting the similated on-prem environment to the AWS cloud network
+*** Test connectivitty ***
+1.  From the private instances from VPC A, B, and C ping the private instance in the onprem network
+
+  - ping 172.16.1.100 -c 3
+
+2.  From the onprem custome gateway instance ping the privates instances in VPC A, B, and C
+
+  - ping 10.0.1.100
+
+  - ping 10.1.1.100
+
+  - ping 10.2.1.100
+
+
+All pings from step 1/2 should all be successful

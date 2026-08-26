@@ -1,0 +1,416 @@
+# What this template does (matching the workshop steps):
+
+# - Creates a Customer Gateway using the on-prem CGW's public IP
+# - Creates a VPN Connection attached directly to the Transit Gateway with static routing
+# - Uses a Lambda custom resource to retrieve the auto-created TGW attachment ID and tunnel details (needed because CloudFormation doesn't expose these as native attributes)
+# - Creates the VPN Route Table on the TGW and associates the VPN attachment to it
+# - Propagates VPC A, B, and C routes into the VPN Route Table
+# - Adds static routes for 172.16.0.0/16 → VPN attachment in both the Shared Services and Default TGW route tables
+# - Adds VPC route table entries for 172.16.0.0/16 → TGW in VPC A, B, and C private route tables
+# - Updates the CGW security group with UDP 500/4500 rules for both tunnel outside IPs
+# - Configures OpenSWAN on the CGW instance via SSM Run Command (writes/etc/ipsec.d/aws.conf and /etc/ipsec.d/aws.secrets, then starts the service)
+# Note: The rightsubnet=10.0.0.0/14 in the OpenSWAN config covers 10.0.0.0–10.3.255.255, which encompasses VPC A (10.0.0.0/16), VPC B (10.1.0.0/16), and VPC C (10.2.0.0/16) per the workshop guidance. After deployment, the VPN tunnel should come up automatically and you can verify with ping 10.0.1.100 from the on-prem side.
+
+
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Establishes Site-to-Site VPN between on-premises (simulated) and AWS cloud network via Transit Gateway"
+
+Parameters:
+  CloudStackName:
+    Type: String
+    Description: "Name of the aws-cloud-network CloudFormation stack (needed to import VPC B/C route tables)"
+  OnPremCustomerGatewayPublicIp:
+    Type: String
+    Description: "Public IP of the On-Premises Customer Gateway EC2 instance (from onprem-network stack Outputs)"
+  OnPremCustomerGatewayInstanceId:
+    Type: String
+    Description: "Instance ID of the On-Premises Customer Gateway EC2 (for SSM-based OpenSWAN config)"
+  OnPremCustomerGatewaySecurityGroupId:
+    Type: String
+    Description: "Security Group ID of the On-Premises Customer Gateway (from onprem-network stack Outputs)"
+  OnPremCidr:
+    Type: String
+    Default: "172.16.0.0/16"
+    Description: "On-premises CIDR block"
+
+Resources:
+  # --- Customer Gateway ---
+  CustomerGateway:
+    Type: AWS::EC2::CustomerGateway
+    Properties:
+      BgpAsn: 65000
+      IpAddress: !Ref OnPremCustomerGatewayPublicIp
+      Type: ipsec.1
+      Tags:
+        - Key: Name
+          Value: "On-Premises Customer Gateway"
+
+  # --- VPN Connection attached to Transit Gateway ---
+  VpnConnection:
+    Type: AWS::EC2::VPNConnection
+    Properties:
+      Type: ipsec.1
+      CustomerGatewayId: !Ref CustomerGateway
+      TransitGatewayId: !ImportValue CloudNetworkTGW
+      StaticRoutesOnly: true
+      Tags:
+        - Key: Name
+          Value: "On-Prem to Cloud VPN"
+
+  # --- Lambda IAM Role for Custom Resource ---
+  VpnLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: VpnDescribePolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeTransitGatewayAttachments
+                  - ec2:DescribeVpnConnections
+                Resource: "*"
+        - PolicyName: SSMRunCommandPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:SendCommand
+                  - ssm:GetCommandInvocation
+                Resource: "*"
+
+  # --- Lambda to retrieve VPN tunnel details and TGW Attachment ID ---
+  VpnDetailsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.14
+      Handler: index.handler
+      Timeout: 300
+      Role: !GetAtt VpnLambdaRole.Arn
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+          import time
+
+          def handler(event, context):
+              if event['RequestType'] == 'Delete':
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                  return
+
+              try:
+                  ec2 = boto3.client('ec2')
+                  vpn_id = event['ResourceProperties']['VpnConnectionId']
+
+                  # Get TGW Attachment ID
+                  attachment_id = None
+                  for _ in range(30):
+                      resp = ec2.describe_transit_gateway_attachments(
+                          Filters=[
+                              {'Name': 'resource-id', 'Values': [vpn_id]},
+                              {'Name': 'resource-type', 'Values': ['vpn']}
+                          ]
+                      )
+                      attachments = resp.get('TransitGatewayAttachments', [])
+                      if attachments and attachments[0].get('State') in ('available', 'pending', 'pendingAcceptance'):
+                          attachment_id = attachments[0]['TransitGatewayAttachmentId']
+                          break
+                      time.sleep(10)
+
+                  if not attachment_id:
+                      cfnresponse.send(event, context, cfnresponse.FAILED, {}, reason="TGW attachment not found")
+                      return
+
+                  # Get VPN tunnel details
+                  vpn_resp = ec2.describe_vpn_connections(VpnConnectionIds=[vpn_id])
+                  vpn = vpn_resp['VpnConnections'][0]
+
+                  tunnel_options = vpn.get('Options', {}).get('TunnelOptions', [])
+                  vgw_telemetry = vpn.get('VgwTelemetry', [])
+
+                  tunnel1_outside_ip = vgw_telemetry[0]['OutsideIpAddress'] if vgw_telemetry else ''
+                  tunnel2_outside_ip = vgw_telemetry[1]['OutsideIpAddress'] if len(vgw_telemetry) > 1 else ''
+                  tunnel1_psk = tunnel_options[0].get('PreSharedKey', '') if tunnel_options else ''
+
+                  response_data = {
+                      'TgwAttachmentId': attachment_id,
+                      'Tunnel1OutsideIp': tunnel1_outside_ip,
+                      'Tunnel2OutsideIp': tunnel2_outside_ip,
+                      'Tunnel1Psk': tunnel1_psk,
+                  }
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, response_data)
+              except Exception as e:
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {}, reason=str(e))
+
+  # --- Custom Resource: Get VPN details ---
+  VpnDetails:
+    Type: Custom::VpnDetails
+    DependsOn: VpnConnection
+    Properties:
+      ServiceToken: !GetAtt VpnDetailsFunction.Arn
+      VpnConnectionId: !Ref VpnConnection
+
+  # --- VPN Transit Gateway Route Table ---
+  VpnTransitGatewayRouteTable:
+    Type: AWS::EC2::TransitGatewayRouteTable
+    Properties:
+      TransitGatewayId: !ImportValue CloudNetworkTGW
+      Tags:
+        - Key: Name
+          Value: "VPN Route Table"
+
+  # --- Associate VPN Attachment to VPN Route Table ---
+  VpnRouteTableAssociation:
+    Type: AWS::EC2::TransitGatewayRouteTableAssociation
+    DependsOn: VpnDetails
+    Properties:
+      TransitGatewayAttachmentId: !GetAtt VpnDetails.TgwAttachmentId
+      TransitGatewayRouteTableId: !Ref VpnTransitGatewayRouteTable
+
+  # --- Propagate VPC A, B, C routes into VPN Route Table ---
+  VpnPropagationVpcA:
+    Type: AWS::EC2::TransitGatewayRouteTablePropagation
+    Properties:
+      TransitGatewayAttachmentId: !ImportValue VpcATransitGatewayAttachment
+      TransitGatewayRouteTableId: !Ref VpnTransitGatewayRouteTable
+
+  VpnPropagationVpcB:
+    Type: AWS::EC2::TransitGatewayRouteTablePropagation
+    Properties:
+      TransitGatewayAttachmentId: !ImportValue VpcBTransitGatewayAttachment
+      TransitGatewayRouteTableId: !Ref VpnTransitGatewayRouteTable
+
+  VpnPropagationVpcC:
+    Type: AWS::EC2::TransitGatewayRouteTablePropagation
+    Properties:
+      TransitGatewayAttachmentId: !ImportValue VpcCTransitGatewayAttachment
+      TransitGatewayRouteTableId: !Ref VpnTransitGatewayRouteTable
+
+  SharedServicesOnPremRoute:
+    Type: AWS::EC2::TransitGatewayRoute
+    DependsOn: VpnRouteTableAssociation
+    Properties:
+      TransitGatewayRouteTableId: !ImportValue TransitGatewayRouteTableSharedServices
+      DestinationCidrBlock: !Ref OnPremCidr
+      TransitGatewayAttachmentId: !GetAtt VpnDetails.TgwAttachmentId
+
+  # --- Static route in Default RTB: on-prem CIDR → VPN attachment ---
+  DefaultOnPremRoute:
+    Type: AWS::EC2::TransitGatewayRoute
+    DependsOn: VpnRouteTableAssociation
+    Properties:
+      TransitGatewayRouteTableId: !ImportValue TransitGatewayRouteTableDefault
+      DestinationCidrBlock: !Ref OnPremCidr
+      TransitGatewayAttachmentId: !GetAtt VpnDetails.TgwAttachmentId
+
+  # --- VPC Route Table entries: 172.16.0.0/16 → TGW ---
+  VpcAOnPremRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !ImportValue VpcAPrivateSubnetRouteTable
+      DestinationCidrBlock: !Ref OnPremCidr
+      TransitGatewayId: !ImportValue CloudNetworkTGW
+
+  VpcBOnPremRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId:
+        Fn::ImportValue: !Sub "VPCB-${CloudStackName}-PrivateRouteTable"
+      DestinationCidrBlock: !Ref OnPremCidr
+      TransitGatewayId: !ImportValue CloudNetworkTGW
+
+  VpcCOnPremRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId:
+        Fn::ImportValue: !Sub "VPCC-${CloudStackName}-PrivateRouteTable"
+      DestinationCidrBlock: !Ref OnPremCidr
+      TransitGatewayId: !ImportValue CloudNetworkTGW
+
+  # --- Security Group rules for IPsec (UDP 500 and 4500) ---
+  SgIngressTunnel1Udp500:
+    Type: AWS::EC2::SecurityGroupIngress
+    DependsOn: VpnDetails
+    Properties:
+      GroupId: !Ref OnPremCustomerGatewaySecurityGroupId
+      IpProtocol: udp
+      FromPort: 500
+      ToPort: 500
+      CidrIp: !Sub "${VpnDetails.Tunnel1OutsideIp}/32"
+      Description: "IPsec IKE Tunnel 1"
+
+  SgIngressTunnel1Udp4500:
+    Type: AWS::EC2::SecurityGroupIngress
+    DependsOn: VpnDetails
+    Properties:
+      GroupId: !Ref OnPremCustomerGatewaySecurityGroupId
+      IpProtocol: udp
+      FromPort: 4500
+      ToPort: 4500
+      CidrIp: !Sub "${VpnDetails.Tunnel1OutsideIp}/32"
+      Description: "IPsec NAT-T Tunnel 1"
+
+  SgIngressTunnel2Udp500:
+    Type: AWS::EC2::SecurityGroupIngress
+    DependsOn: VpnDetails
+    Properties:
+      GroupId: !Ref OnPremCustomerGatewaySecurityGroupId
+      IpProtocol: udp
+      FromPort: 500
+      ToPort: 500
+      CidrIp: !Sub "${VpnDetails.Tunnel2OutsideIp}/32"
+      Description: "IPsec IKE Tunnel 2"
+
+  SgIngressTunnel2Udp4500:
+    Type: AWS::EC2::SecurityGroupIngress
+    DependsOn: VpnDetails
+    Properties:
+      GroupId: !Ref OnPremCustomerGatewaySecurityGroupId
+      IpProtocol: udp
+      FromPort: 4500
+      ToPort: 4500
+      CidrIp: !Sub "${VpnDetails.Tunnel2OutsideIp}/32"
+      Description: "IPsec NAT-T Tunnel 2"
+
+  # --- Configure OpenSWAN on the Customer Gateway via SSM ---
+  OpenSwanConfigFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.12
+      Handler: index.handler
+      Timeout: 300
+      Role: !GetAtt VpnLambdaRole.Arn
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+          import time
+
+          def handler(event, context):
+              if event['RequestType'] == 'Delete':
+                  # Stop IPsec on delete
+                  try:
+                      ssm = boto3.client('ssm')
+                      instance_id = event['ResourceProperties']['InstanceId']
+                      ssm.send_command(
+                          InstanceIds=[instance_id],
+                          DocumentName='AWS-RunShellScript',
+                          Parameters={'commands': ['systemctl stop ipsec.service || true']}
+                      )
+                  except:
+                      pass
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                  return
+
+              try:
+                  ssm = boto3.client('ssm')
+                  instance_id = event['ResourceProperties']['InstanceId']
+                  cgw_public_ip = event['ResourceProperties']['CgwPublicIp']
+                  tunnel1_ip = event['ResourceProperties']['Tunnel1OutsideIp']
+                  tunnel1_psk = event['ResourceProperties']['Tunnel1Psk']
+                  on_prem_cidr = event['ResourceProperties']['OnPremCidr']
+
+                  openswan_conf = f"""conn Tunnel1
+                  authby=secret
+                  auto=start
+                  left=%defaultroute
+                  leftid={cgw_public_ip}
+                  right={tunnel1_ip}
+                  type=tunnel
+                  ikelifetime=8h
+                  keylife=1h
+                  phase2alg=aes_gcm
+                  ike=aes256-sha2_256;dh14
+                  keyingtries=%forever
+                  keyexchange=ike
+                  leftsubnet={on_prem_cidr}
+                  rightsubnet=10.0.0.0/14
+                  dpddelay=10
+                  dpdtimeout=30
+                  dpdaction=restart_by_peer"""
+
+                  secrets_line = f"{cgw_public_ip} {tunnel1_ip}: PSK \"{tunnel1_psk}\""
+
+                  commands = [
+                      f"cat > /etc/ipsec.d/aws.conf << 'ENDOFCONF'\n{openswan_conf}\nENDOFCONF",
+                      f"cat > /etc/ipsec.d/aws.secrets << 'ENDOFSECRETS'\n{secrets_line}\nENDOFSECRETS",
+                      "chmod 600 /etc/ipsec.d/aws.secrets",
+                      "systemctl enable ipsec.service",
+                      "systemctl restart ipsec.service",
+                      "sleep 5",
+                      "ipsec status"
+                  ]
+
+                  resp = ssm.send_command(
+                      InstanceIds=[instance_id],
+                      DocumentName='AWS-RunShellScript',
+                      Parameters={'commands': commands},
+                      TimeoutSeconds=120
+                  )
+                  command_id = resp['Command']['CommandId']
+
+                  # Wait for command to complete
+                  for _ in range(30):
+                      time.sleep(10)
+                      result = ssm.get_command_invocation(
+                          CommandId=command_id,
+                          InstanceId=instance_id
+                      )
+                      if result['Status'] in ('Success', 'Failed', 'TimedOut', 'Cancelled'):
+                          break
+
+                  if result['Status'] == 'Success':
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {
+                          'Status': 'OpenSWAN configured and started'
+                      })
+                  else:
+                      cfnresponse.send(event, context, cfnresponse.FAILED, {},
+                          reason=f"SSM command failed: {result.get('StandardErrorContent', 'unknown error')}")
+              except Exception as e:
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {}, reason=str(e))
+
+  ConfigureOpenSwan:
+    Type: Custom::ConfigureOpenSwan
+    DependsOn:
+      - VpnDetails
+      - SgIngressTunnel1Udp500
+      - SgIngressTunnel1Udp4500
+      - VpnRouteTableAssociation
+      - SharedServicesOnPremRoute
+      - DefaultOnPremRoute
+    Properties:
+      ServiceToken: !GetAtt OpenSwanConfigFunction.Arn
+      InstanceId: !Ref OnPremCustomerGatewayInstanceId
+      CgwPublicIp: !Ref OnPremCustomerGatewayPublicIp
+      Tunnel1OutsideIp: !GetAtt VpnDetails.Tunnel1OutsideIp
+      Tunnel1Psk: !GetAtt VpnDetails.Tunnel1Psk
+      OnPremCidr: !Ref OnPremCidr
+
+Outputs:
+  VpnConnectionId:
+    Description: "VPN Connection ID"
+    Value: !Ref VpnConnection
+  TgwVpnAttachmentId:
+    Description: "Transit Gateway VPN Attachment ID"
+    Value: !GetAtt VpnDetails.TgwAttachmentId
+  Tunnel1OutsideIp:
+    Description: "VPN Tunnel 1 Outside IP Address"
+    Value: !GetAtt VpnDetails.Tunnel1OutsideIp
+  Tunnel2OutsideIp:
+    Description: "VPN Tunnel 2 Outside IP Address"
+    Value: !GetAtt VpnDetails.Tunnel2OutsideIp
+  CustomerGatewayId:
+    Description: "Customer Gateway ID"
+    Value: !Ref CustomerGateway

@@ -1346,6 +1346,29 @@ Resources:
       RouteTableId: !Ref PrivateSubnetRouteTableVPCC
       TransitGatewayId: !Ref TransitGateway
 
+# # Also add cloud-side VPC private route table routes for on-prem CIDR so instances in VPC A/B/C send on-prem traffic to TGW:
+#   VpcAOnPremRoute:
+#     Type: AWS::EC2::Route
+#     Properties:
+#       RouteTableId: !Ref VpcAPrivateSubnetRouteTable
+#       DestinationCidrBlock: 172.16.0.0/16
+#       TransitGatewayId: !Ref TransitGateway
+
+#   VpcBOnPremRoute:
+#     Type: AWS::EC2::Route
+#     Properties:
+#       RouteTableId: !Ref PrivateSubnetRouteTableVPCB
+#       DestinationCidrBlock: 172.16.0.0/16
+#       TransitGatewayId: !Ref TransitGateway
+
+#   VpcCOnPremRoute:
+#     Type: AWS::EC2::Route
+#     Properties:
+#       RouteTableId: !Ref PrivateSubnetRouteTableVPCC
+#       DestinationCidrBlock: 172.16.0.0/16
+#       TransitGatewayId: !Ref TransitGateway
+
+
 
 ## outputs
 Outputs:
@@ -1508,8 +1531,23 @@ Outputs:
     Value: !Ref TransitGatewayRouteTableSharedServices
     Export:
       Name: TransitGatewayRouteTableSharedServices
+  VPCARouteTableDefault:
+    Description: Cloud network TGW
+    Value: !Ref TransitGatewayRouteTableDefault
+    Export:
+      Name: TransitGatewayRouteTableDefault
   VPCATransitGatewayAttachment:
     Description: Cloud network TGW
     Value: !Ref VpcATransitGatewayAttachment
     Export:
       Name: VpcATransitGatewayAttachment
+  VPCBTransitGatewayAttachment:
+    Description: Cloud network TGW
+    Value: !Ref VpcBTransitGatewayAttachment
+    Export:
+      Name: VpcBTransitGatewayAttachment
+  VPCCTransitGatewayAttachment:
+    Description: Cloud network TGW
+    Value: !Ref VpcCTransitGatewayAttachment
+    Export:
+      Name: VpcCTransitGatewayAttachment

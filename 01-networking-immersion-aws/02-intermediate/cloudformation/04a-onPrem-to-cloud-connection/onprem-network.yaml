@@ -35,7 +35,7 @@ Parameters:
     - t3.large
     - t3.xlarge
     - t3.2xlarge
-    Default: t2.micro
+    Default: t3.micro
     Description: Customer Gateway EC2 instance type.
     Type: String
   LatestAmiId:
@@ -174,14 +174,11 @@ Resources:
       DestinationCidrBlock: 0.0.0.0/0
       NatGatewayId: !Ref OnPremNatGateway
 
-  # Route to our simulated AWS Cloud network from the OnPrem stark
-  # Connects onprem-network.yaml => aws-cloud-network.yaml
   OnPremPrivateRouteAws:
     Type: AWS::EC2::Route
     Properties:
       RouteTableId: !Ref OnPremPrivateRouteTable
-      #aggregated route to our aws cloud network. Read up about Route Aggregation
-      DestinationCidrBlock: 10.0.0.0/8 
+      DestinationCidrBlock: 10.0.0.0/8
       InstanceId: !Ref OnPremCustomerGatewayServer
 
   OnPremAppServerSecurityGroup:
@@ -292,7 +289,6 @@ Resources:
           ToPort: "-1"          
       VpcId: !Ref OnPremVpc
 
-  # sets up onPrem DHCP to connect to our AWS vpc's/networks
   OnPremDhcpOptions:
     Type: AWS::EC2::DHCPOptions
     DependsOn: OnPremDnsServer
@@ -311,7 +307,6 @@ Resources:
       DhcpOptionsId: !Ref OnPremDhcpOptions
       VpcId: !Ref OnPremVpc
 
-# EC2 instances
   OnPremAppServer:
     Type: AWS::EC2::Instance
     DependsOn: 
@@ -516,5 +511,3 @@ Outputs:
     Value: !GetAtt OnPremAppServer.PrivateIp
   OnPremDnsServerPrivateIp:
     Value: !GetAtt OnPremDnsServer.PrivateIp
-  OnPremCustomerGatewayServerId:
-    Value: !Ref OnPremCustomerGatewayServer

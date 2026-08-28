@@ -1,0 +1,120 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Route 53 Resolver Inbound and Outbound Endpoints for Hybrid DNS between on-prem and AWS VPCs"
+
+Parameters:
+  CloudNetworkStackName:
+    Type: String
+    Description: "Name of the aws-cloud-network CloudFormation stack to import VPC/Subnet values from"
+  OnPremDnsServerIp:
+    Type: String
+    Default: "172.16.1.200"
+    Description: "IP address of the on-premises DNS server"
+  DomainName:
+    Type: String
+    Default: "example.corp"
+    Description: "On-premises domain name to forward DNS queries for"
+
+Resources:
+  ResolverSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Security group for Route 53 Resolver endpoints"
+      GroupName: "Route53 Resolver Endpoint SG"
+      VpcId: !ImportValue VpcAId
+      SecurityGroupIngress:
+        - IpProtocol: udp
+          FromPort: 53
+          ToPort: 53
+          CidrIp: "10.0.0.0/8"
+        - IpProtocol: tcp
+          FromPort: 53
+          ToPort: 53
+          CidrIp: "10.0.0.0/8"
+        - IpProtocol: udp
+          FromPort: 53
+          ToPort: 53
+          CidrIp: "172.16.0.0/16"
+        - IpProtocol: tcp
+          FromPort: 53
+          ToPort: 53
+          CidrIp: "172.16.0.0/16"
+      Tags:
+        - Key: Name
+          Value: "Route53 Resolver Endpoint SG"
+
+  OutboundResolverEndpoint:
+    Type: AWS::Route53Resolver::ResolverEndpoint
+    Properties:
+      Name: "NetworkingDayOutbound"
+      Direction: OUTBOUND
+      SecurityGroupIds:
+        - !Ref ResolverSecurityGroup
+      IpAddresses:
+        - SubnetId: !ImportValue VpcAPrivateSubnetAZ1
+        - SubnetId: !ImportValue VpcAPrivateSubnetAZ2
+      Tags:
+        - Key: Name
+          Value: "NetworkingDayOutbound"
+
+  InboundResolverEndpoint:
+    Type: AWS::Route53Resolver::ResolverEndpoint
+    Properties:
+      Name: "NetworkingDayInbound"
+      Direction: INBOUND
+      SecurityGroupIds:
+        - !Ref ResolverSecurityGroup
+      IpAddresses:
+        - SubnetId: !ImportValue VpcAPrivateSubnetAZ1
+        - SubnetId: !ImportValue VpcAPrivateSubnetAZ2
+      Tags:
+        - Key: Name
+          Value: "NetworkingDayInbound"
+
+  ResolverRule:
+    Type: AWS::Route53Resolver::ResolverRule
+    DependsOn: OutboundResolverEndpoint
+    Properties:
+      Name: "NetworkingDayRule"
+      DomainName: !Ref DomainName
+      RuleType: FORWARD
+      ResolverEndpointId: !GetAtt OutboundResolverEndpoint.ResolverEndpointId
+      TargetIps:
+        - Ip: !Ref OnPremDnsServerIp
+          Port: 53
+      Tags:
+        - Key: Name
+          Value: "NetworkingDayRule"
+
+  ResolverRuleAssociationVpcA:
+    Type: AWS::Route53Resolver::ResolverRuleAssociation
+    Properties:
+      Name: "ResolverRuleVpcA"
+      ResolverRuleId: !GetAtt ResolverRule.ResolverRuleId
+      VPCId: !ImportValue VpcAId
+
+  ResolverRuleAssociationVpcB:
+    Type: AWS::Route53Resolver::ResolverRuleAssociation
+    Properties:
+      Name: "ResolverRuleVpcB"
+      ResolverRuleId: !GetAtt ResolverRule.ResolverRuleId
+      VPCId:
+        Fn::ImportValue: !Sub "VPCB-${CloudNetworkStackName}-VPC"
+
+  ResolverRuleAssociationVpcC:
+    Type: AWS::Route53Resolver::ResolverRuleAssociation
+    Properties:
+      Name: "ResolverRuleVpcC"
+      ResolverRuleId: !GetAtt ResolverRule.ResolverRuleId
+      VPCId:
+        Fn::ImportValue: !Sub "VPCC-${CloudNetworkStackName}-VPC"
+
+Outputs:
+  OutboundEndpointId:
+    Description: "Route 53 Outbound Resolver Endpoint ID"
+    Value: !GetAtt OutboundResolverEndpoint.ResolverEndpointId
+  InboundEndpointId:
+    Description: "Route 53 Inbound Resolver Endpoint ID"
+    Value: !GetAtt InboundResolverEndpoint.ResolverEndpointId
+  ResolverRuleId:
+    Description: "Resolver Rule ID for example.corp forwarding"
+    Value: !GetAtt ResolverRule.ResolverRuleId

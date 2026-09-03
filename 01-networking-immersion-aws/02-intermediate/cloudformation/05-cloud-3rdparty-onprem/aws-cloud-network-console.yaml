@@ -1,3 +1,4 @@
+# Not in console code example to see addition/s not in aws-cloud-network-console.yaml
 AWSTemplateFormatVersion: "2010-09-09"
 Description: "Create VPC A, VPC B and VPC C each with an IGW, NATGW and public and private subnets in 2AZs using 10.0.0.0/16, 10.1.0.0/16 and 10.2.0.0/16"
 
@@ -30,7 +31,7 @@ Parameters:
     ConstraintDescription: must be a valid IP address of the form x.x.x.x/32.
 
 Resources:
-  # VPC A Resources
+# VPC A Resources
   VpcA:
     Type: AWS::EC2::VPC
     Properties:
@@ -288,6 +289,11 @@ Resources:
           CidrIp: !Ref ParticipantIPAddress
           FromPort: "-1"
           ToPort: "-1"
+        # Not in console code example [Branch1 VPC]
+        - IpProtocol: icmp
+          CidrIp: 172.20.0.0/16
+          FromPort: "-1"
+          ToPort: "-1"        
 
   VpcAPublicServerEc2:
     Type: AWS::EC2::Instance
@@ -351,7 +357,7 @@ Resources:
       VpcEndpointType: 'Interface'
       VpcId: !Ref VpcA
 
-  # VPC B Resources
+# VPC B Resources
   VPCB:
     Type: AWS::EC2::VPC
     Properties:
@@ -703,7 +709,7 @@ Resources:
         - Key: Name
           Value: "VPC B Private AZ1 Server"
 
-  # VPC C Resources
+# VPC C Resources
   VPCC:
     Type: AWS::EC2::VPC
     Properties:
@@ -1098,6 +1104,9 @@ Resources:
       Tags:
         - Key: Name
           Value: TGW
+      # Not in console code example
+      TransitGatewayCidrBlocks:
+        - "10.10.0.0/24"      
 
   TransitGatewayRouteTableDefault:  
     Type: AWS::EC2::TransitGatewayRouteTable
@@ -1412,3 +1421,9 @@ Outputs:
     Value: !Ref VpcATransitGatewayAttachment
     Export:
       Name: VpcATransitGatewayAttachment
+  # Not in console code example     
+  TGWRouteTableDefault:
+    Description: TGW Default Route Table
+    Value: !Ref TransitGatewayRouteTableDefault
+    Export:
+      Name: TransitGatewayRouteTableDefault      

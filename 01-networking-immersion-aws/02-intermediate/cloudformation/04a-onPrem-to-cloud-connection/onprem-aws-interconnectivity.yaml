@@ -143,6 +143,8 @@ Resources:
                   tunnel1_outside_ip = vgw_telemetry[0]['OutsideIpAddress'] if vgw_telemetry else ''
                   tunnel2_outside_ip = vgw_telemetry[1]['OutsideIpAddress'] if len(vgw_telemetry) > 1 else ''
                   tunnel1_psk = tunnel_options[0].get('PreSharedKey', '') if tunnel_options else ''
+                  # addd code to get tunnel 2 pre-shared key if you need it
+                  # tunnel2_psk = tunnel_options[1].get('PreSharedKey', '') if len(tunnel_options) > 1 else ''
 
                   response_data = {
                       'TgwAttachmentId': attachment_id,
@@ -240,6 +242,7 @@ Resources:
       TransitGatewayId: !ImportValue CloudNetworkTGW
 
   # --- Security Group rules for IPsec (UDP 500 and 4500) ---
+  # Adding SG rules to an existing security group for IPsec tunnels
   SgIngressTunnel1Udp500:
     Type: AWS::EC2::SecurityGroupIngress
     DependsOn: VpnDetails

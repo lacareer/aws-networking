@@ -255,6 +255,7 @@ Resources:
   Router1ENI0:
     Type: AWS::EC2::NetworkInterface
     Properties:
+      SourceDestCheck: false
       SubnetId: !Ref AppliancePublicSubnet
       PrivateIpAddress: 10.5.0.5
       GroupSet:
@@ -266,6 +267,7 @@ Resources:
   Router1ENI1:
     Type: AWS::EC2::NetworkInterface
     Properties:
+      SourceDestCheck: false
       SubnetId: !Ref AppliancePublicSubnet
       PrivateIpAddress: 10.5.0.6
       GroupSet:
@@ -277,6 +279,7 @@ Resources:
   Router2ENI0:
     Type: AWS::EC2::NetworkInterface
     Properties:
+      SourceDestCheck: false
       SubnetId: !Ref Branch1PublicSubnet
       PrivateIpAddress: 172.20.0.5
       GroupSet:
@@ -288,6 +291,7 @@ Resources:
   Router2ENI1:
     Type: AWS::EC2::NetworkInterface
     Properties:
+      SourceDestCheck: false
       SubnetId: !Ref Branch1Subnet1
       PrivateIpAddress: 172.20.16.5
       GroupSet:

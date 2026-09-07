@@ -34,7 +34,8 @@ To build out our simulated network appliance environment and connect it to AWS, 
 - Enable BGP peering over the GRE tunnel.
 - Validate connectivity and route propagation.
 
-# NOTE THAT YOU MAY RUN INTO INTERNERT GATEWAY AND ELASTIC IP KIMITS OF 5 FOR EACH IN A PERSONAL ACCOUNT IF THERE ARE EXISTING IGW or EIP ALREADY CONFIG IN THE ACCOUNT
+# NOTE THAT YOU MAY RUN INTO INTERNERT GATEWAY AND ELASTIC IP LIMITS OF 5 FOR EACH IN A PERSONAL ACCOUNT IF THERE ARE EXISTING IGW or EIP ALREADY CONFIG IN THE ACCOUNT
+# I HAD TO DETACH AND DELETE TEH DEAFULT VPC INTERNET GATEWAY  FOR THE PLURALSIGHT ACCOUNT AND I WAS GOOD TO GO
 
 
 *** Deploy the infra in this order using one of the options below ***
@@ -52,15 +53,16 @@ To build out our simulated network appliance environment and connect it to AWS, 
 
     - 3rd-party-appliance-cfn.yaml
 
-If you are deploying 3rd-party-appliance-console.yaml, use the LAB steps along with the AWS console and the commands below to establish estblish BGP connections with the TGW
+If you are deploying #1, i.e the *-console.yaml along  with the pre-requisites.yaml, use the LAB steps along with the AWS console and the commands below to establish estblish BGP connections with the TGW
 
-Otherwise deploy the 3rd-party-appliance-console.yaml and use only the command from the "Third Party Appliance" EC2 to establish BGP conections with the TGW
+Otherwise deploy #2, i.e the *-cfn.yaml along  with the pre-requisites.yaml, and run the below commands from the "Third Party Appliance" EC2 to establish BGP conections with the TGW
 
 # Note on TGW CIDR block
 You can specify a size /24 CIDR block or larger (for example, /23 or /22) for IPv4, or a size /64 CIDR block or larger (for example, /63 or /62) for IPv6. 
 You can associate any public or private IP address range, except for addresses in the 169.254.0.0/16 range, and ranges that overlap with the addresses for your VPC attachments and on-premises networks.
 
 *** Testing connectivity ***
+# 1 Console commands and outputs
 
 Third Party Appliance" EC2 commands after connecting using session manager from the console
 
@@ -193,4 +195,124 @@ From Branch1 Router EC2 instance run:
 
 Since we allowed the network 172.20.0.0/16 in the Security Group for the instance VPC A Private Route Table, we are using the source IP 172.20.0.5 of the directly connected interface for the ICMP testing.
 
-You should receive successful replies — confirming end-to-end routing from the Third-Party network to VPC A is working dynamically via the TGW Connect Attachment.        
+You should receive successful replies — confirming end-to-end routing from the Third-Party network to VPC A is working dynamically via the TGW Connect Attachment.
+
+You have now successfully completed validation of dynamic BGP routing and GRE connectivity using TGW Connect between your simulated Third-Party Appliance and VPC A.        
+
+# 2 cfn infra commands and outputs
+Third Party Appliance" EC2 commands after connecting using session manager from the console
+
+$ sudo ip tunnel add gre1 mode gre local 10.5.0.6 remote 10.10.0.1 ttl 255
+
+    sudo ip link set gre1 upsudo ip link set gre1 upadd tunnel "gre0" failed: File exists
+
+$ sudo ip addr add 169.254.255.1/30 dev gre1
+
+    Error: ipv4: Address already assigned.
+
+$ ip tunnel show gre1
+    
+    gre1: gre/ip remote 10.10.0.1 local 10.5.0.6 ttl 255
+
+$ sudo ip addr show dev gre1
+
+    8: gre1@NONE: <POINTOPOINT,NOARP,UP,LOWER_UP> mtu 8977 qdisc noqueue state UNKNOWN group default qlen 1000
+        link/gre 10.5.0.6 peer 10.10.0.1
+        inet 169.254.255.1/30 scope global gre1
+        valid_lft forever preferred_lft forever
+        inet6 fe80::5efe:a05:6/64 scope link 
+        valid_lft forever preferred_lft forever
+
+$ sudo ip route replace 10.10.0.1/32 via 10.5.0.1 dev ens6 src 10.5.0.6
+
+$ sudo vtysh
+
+    Hello, this is FRRouting (version 8.1).
+    Copyright 1996-2005 Kunihiro Ishiguro, et al.
+
+edge-router1# configure terminal
+
+edge-router1(config)# router bgp 65500
+
+edge-router1(config-router)# router bgp 65500
+    neighbor 169.254.255.2 remote-as 64512
+    neighbor 169.254.255.2 update-source gre1
+    neighbor 169.254.255.2 ebgp-multihop 2
+    neighbor 169.254.255.2 soft-reconfiguration inbound
+
+    address-family ipv4 unicast
+        neighbor 169.254.255.2 route-map ALLOW_ALL out
+        neighbor 169.254.255.2 route-map ALLOW_ALL in
+    exit-address-family
+
+edge-router1(config-router)# end
+
+edge-router1# write
+
+    Note: this version of vtysh never writes vtysh.conf
+    Building Configuration...
+    Integrated configuration saved to /etc/frr/frr.conf
+    [OK]
+
+edge-router1# exit
+
+$
+
+$ sudo vtysh
+
+    Hello, this is FRRouting (version 8.1).
+    Copyright 1996-2005 Kunihiro Ishiguro, et al.
+
+edge-router1# show ip bgp summary
+
+    IPv4 Unicast Summary (VRF default):
+    BGP router identifier 192.168.255.1, local AS number 65500 vrf-id 0
+    BGP table version 5
+    RIB entries 9, using 1656 bytes of memory
+    Peers 2, using 1446 KiB of memory
+
+    Neighbor        V         AS   MsgRcvd   MsgSent   TblVer  InQ OutQ  Up/Down State/PfxRcd   PfxSnt Desc
+    169.254.255.2   4      64512        71        72        0    0    0 00:11:05            1        5 N/A
+    192.168.255.2   4      65501        26        26        0    0    0 00:16:34            3        5 N/A
+
+    Total number of neighbors 2
+
+edge-router1# 
+
+This confirms that BGP peering is established abetween the Third-Party Appliance and Transit Gateway.
+
+You will notice that State/PfxRcd for the neighbor 169.254.255.2, which represents the TGW Connect peer, is currently showing as 0. This means we have not yet learned any routes from the Transit Gateway. In the next section of the lab, we will attach the Connect attachment to the Transit Gateway route table, which will allow routes to be propagated via the BGP peering.
+
+
+In the terminal session of Branch1 Router instance
+
+$ sudo vtysh -c "show ip bgp 10.0.1.100"
+
+    BGP routing table entry for 10.0.0.0/16, version 5
+    Paths: (1 available, best #1, table default)
+    Advertised to non peer-group peers:
+    192.168.255.1
+    65500 64512
+        192.168.255.1 from 192.168.255.1 (192.168.255.1)
+        Origin IGP, valid, external, best (First path received)
+        Last update: Mon Sep  7 16:15:53 2026
+
+$ ping -I 172.20.0.5 10.0.1.100 -c 5
+
+    PING 10.0.1.100 (10.0.1.100) from 172.20.0.5 : 56(84) bytes of data.
+    64 bytes from 10.0.1.100: icmp_seq=1 ttl=125 time=3.23 ms
+    64 bytes from 10.0.1.100: icmp_seq=2 ttl=125 time=1.07 ms
+    64 bytes from 10.0.1.100: icmp_seq=3 ttl=125 time=1.09 ms
+    64 bytes from 10.0.1.100: icmp_seq=4 ttl=125 time=1.51 ms
+    64 bytes from 10.0.1.100: icmp_seq=5 ttl=125 time=0.911 ms
+
+    --- 10.0.1.100 ping statistics ---
+    5 packets transmitted, 5 received, 0% packet loss, time 4006ms
+    rtt min/avg/max/mdev = 0.911/1.563/3.233/0.857 ms
+
+Since we allowed the network 172.20.0.0/16 in the Security Group for the instance VPC A Private Route Table, we are using the source IP 172.20.0.5 of the directly connected interface for the ICMP testing.
+
+You should receive successful replies — confirming end-to-end routing from the Third-Party network to VPC A is working dynamically via the TGW Connect Attachment.
+
+You have now successfully completed validation of dynamic BGP routing and GRE connectivity using TGW Connect between your simulated Third-Party Appliance and VPC A.
+

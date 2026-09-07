@@ -515,12 +515,16 @@ Resources:
     DependsOn: TGWConnectAttachment
     Properties:
       TransitGatewayAttachmentId: !Ref TGWConnectAttachment
-      PeerAddress: "10.5.0.6"
-      TransitGatewayAddress: "10.10.0.1"
-      InsideCidrBlocks:
-        - "169.254.255.0/29"
-      BgpOptions:
-        PeerAsn: 65500
+      ConnectPeerConfiguration:
+        PeerAddress: "10.5.0.6"
+        TransitGatewayAddress: "10.10.0.1"
+        InsideCidrBlocks:
+          - "169.254.255.0/29"
+        # BgpOptions:
+        #   PeerAsn: 65500
+        Protocol: gre
+        BgpConfigurations:
+          - PeerAsn: 65500          
       Tags:
         - Key: Name
           Value: "GRE1-tunnel"

@@ -1,3 +1,4 @@
+# Go to 'Not in console code example' to see addition/s not in aws-cloud-network-cfn.yaml
 AWSTemplateFormatVersion: "2010-09-09"
 Description: "Create VPC A, VPC B and VPC C each with an IGW, NATGW and public and private subnets in 2AZs using 10.0.0.0/16, 10.1.0.0/16 and 10.2.0.0/16"
 
@@ -288,6 +289,11 @@ Resources:
           CidrIp: !Ref ParticipantIPAddress
           FromPort: "-1"
           ToPort: "-1"
+        #Not in console code sample
+        - IpProtocol: icmp
+          CidrIp: 172.20.0.0/16
+          FromPort: "-1"
+          ToPort: "-1"        
 
   VpcAPublicServerEc2:
     Type: AWS::EC2::Instance
@@ -1098,6 +1104,9 @@ Resources:
       Tags:
         - Key: Name
           Value: TGW
+      # not in console code sample
+      TransitGatewayCidrBlocks:
+        - "10.10.0.0/24"      
 
   TransitGatewayRouteTableDefault:  
     Type: AWS::EC2::TransitGatewayRouteTable
@@ -1412,3 +1421,9 @@ Outputs:
     Value: !Ref VpcATransitGatewayAttachment
     Export:
       Name: VpcATransitGatewayAttachment
+#Not in console code sample
+  TGWRouteTableDefault:
+    Description: TGW Default Route Table
+    Value: !Ref TransitGatewayRouteTableDefault
+    Export:
+      Name: TransitGatewayRouteTableDefault

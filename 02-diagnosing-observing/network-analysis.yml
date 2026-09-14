@@ -1,0 +1,823 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Creates 4 VPCs with 1 AZ, 6 Subnets, 1 NLB, 1 NAT GW, three EC2 Instances and 1 RDS database. This template includes an EC2 nginx web server in a single AZ with SSM Instance Profile.
+             **WARNING** This template creates an Amazon EC2 instance. You will be billed for the AWS resources used if you create a  stack from this template.
+Parameters:
+  AvailabilityZoneSelection:
+    Description: Availability Zone
+    Type: AWS::EC2::AvailabilityZone::Name
+    Default: us-east-1a
+  AvailabilityZoneSelection1:
+    Description: Availability Zone
+    Type: AWS::EC2::AvailabilityZone::Name
+    Default: us-east-1b
+  LatestAmiId:
+    Description: Latest EC2 AMI from Systems Manager Parameter Store
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+  InstanceType:
+    Description: WebServer EC2 instance type
+    Type: String
+    Default: t3.micro
+
+Resources:
+
+#role for EC2 instances for systems manager
+  EC2InstanceRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: ANFWEC2InstanceRole_syd
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      # The managed policy to allows the EC2 access to SSM permissions
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+        - !Ref EC2InstanceRole
+
+# DB secret
+  SecretAdminUser:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: !Sub "PostgreSQL admin user credential"
+      GenerateSecretString:
+        SecretStringTemplate: !Sub '{"username": "MyDBAdmin"}'
+        GenerateStringKey: 'password'
+        PasswordLength: 10
+        ExcludeCharacters: '"@/\$`&:'
+      Tags:
+        - Key: Purpose
+          Value: DB Secret Password      
+
+# Inspection VPC Deployment for the AWS Network Firewall
+  InspectionVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      EnableDnsSupport: 'true'
+      EnableDnsHostnames: 'true'
+      CidrBlock: 100.64.0.0/16
+      Tags:
+        - Key: Name
+          Value: ANFW Inspection VPC
+
+  InspectionTransitGatewaySubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZoneSelection
+      CidrBlock: 100.64.0.0/28
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: Transit Gateway Subnet
+      VpcId: !Ref InspectionVPC
+
+  InspectionTransitGatewaySubnetRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref InspectionVPC
+      Tags:
+        - Key: Name
+          Value: Inspection TGW Route Table
+
+  InspectionTransitGatewaySubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref InspectionTransitGatewaySubnet
+      RouteTableId: !Ref InspectionTransitGatewaySubnetRouteTable
+
+  InspectionFirewallSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZoneSelection
+      CidrBlock: 100.64.0.16/28
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: Firewall Subnet
+      VpcId: !Ref InspectionVPC
+
+  InspectionFirewallSubnetRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref InspectionVPC
+      Tags:
+        - Key: Name
+          Value: Inspection Firewall Route Table
+
+  InspectionFirewallSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref InspectionFirewallSubnet
+      RouteTableId: !Ref InspectionFirewallSubnetRouteTable
+
+# Central Egress VPC Deployment for the AWS Network Firewall
+  CentralEgressVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      EnableDnsSupport: 'true'
+      EnableDnsHostnames: 'true'
+      CidrBlock: 10.10.0.0/16
+      Tags:
+        - Key: Name
+          Value: Central Egress VPC
+
+  CentralEgressTransitGatewaySubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZoneSelection
+      CidrBlock: 10.10.0.0/28
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: Transit Gateway Subnet
+      VpcId: !Ref CentralEgressVPC
+
+  CentralEgressTransitGatewaySubnetRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref CentralEgressVPC
+      Tags:
+        - Key: Name
+          Value: Central Egress TGW Route Table
+ 
+  CentralEgressTransitGatewaySubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref CentralEgressTransitGatewaySubnet
+      RouteTableId: !Ref CentralEgressTransitGatewaySubnetRouteTable
+
+  CentralEgressPublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZoneSelection
+      CidrBlock: 10.10.1.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: Public Subnet
+      VpcId: !Ref CentralEgressVPC
+
+  CentralEgressPublicSubnetRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref CentralEgressVPC
+      Tags:
+        - Key: Name
+          Value: Central Egress Public Route Table
+
+  CentralEgressPublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref CentralEgressPublicSubnet
+      RouteTableId: !Ref CentralEgressPublicSubnetRouteTable
+
+  CentralEgressInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: "Name"
+          Value: "Central Egress VPC IGW"
+
+  CentralEgressInternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref CentralEgressInternetGateway
+      VpcId: !Ref CentralEgressVPC
+
+  CentralEgressPublicSubnetNATEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      
+  CentralEgressPublicSubnetNATGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId:
+        Fn::GetAtt:
+          - CentralEgressPublicSubnetNATEIP
+          - AllocationId
+      SubnetId: !Ref CentralEgressPublicSubnet
+      Tags:
+        - Key: Name
+          Value: egress-natgw
+
+# Prod VPC Deployment for the AWS Network Firewall
+  ProdVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      EnableDnsSupport: 'true'
+      EnableDnsHostnames: 'true'
+      CidrBlock: 10.1.0.0/16
+      Tags:
+        - Key: Name
+          Value: "Prod VPC"
+
+  ProdTransitGatewaySubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZoneSelection
+      CidrBlock: 10.1.0.0/28
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: Transit Gateway Subnet
+      VpcId: !Ref ProdVPC
+
+  ProdRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref ProdVPC
+      Tags:
+        - Key: Name
+          Value: Prod Route Table
+
+  ProdTransitGatewaySubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref ProdTransitGatewaySubnet
+      RouteTableId: !Ref ProdRouteTable
+
+  ProdWorkloadSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZoneSelection
+      CidrBlock: 10.1.1.0/24
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: Workload Subnet
+      VpcId: !Ref ProdVPC
+
+  ProdWorkloadSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref ProdWorkloadSubnet
+      RouteTableId: !Ref ProdRouteTable
+
+  ProdDatabaseSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZoneSelection
+      CidrBlock: 10.1.0.16/28
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: Database Subnet-1
+      VpcId: !Ref ProdVPC
+
+  ProdDatabaseSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZoneSelection1
+      CidrBlock: 10.1.0.32/28
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: Database Subnet-2
+      VpcId: !Ref ProdVPC
+
+  #DBRouteTable:
+  #  Type: AWS::EC2::RouteTable
+  #  Properties:
+  #    VpcId: !Ref ProdVPC
+  #    Tags:
+  #      - Key: Name
+  #        Value: DB Route Table
+
+  #ProdDBSubnet1RouteTableAssociation:
+  ##  Type: AWS::EC2::SubnetRouteTableAssociation
+  #  Properties:
+  #    SubnetId: !Ref ProdDatabaseSubnet1
+  #    RouteTableId: !Ref DBRouteTable
+
+  #ProdDBSubnet2RouteTableAssociation:
+  #  Type: AWS::EC2::SubnetRouteTableAssociation
+  #  Properties:
+  #    SubnetId: !Ref ProdDatabaseSubnet2
+  #    RouteTableId: !Ref DBRouteTable
+  
+  ProdDBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: "Database Security Group"
+      GroupDescription: "Allow ICMP from ProdEC2SecurityGroup "
+      VpcId: !Ref ProdVPC
+      SecurityGroupIngress: 
+        - IpProtocol: tcp
+          ToPort: 5432
+          FromPort: 5432
+          CidrIp: 10.1.0.0/16
+  
+  DBSubnetGroup: 
+    Type: AWS::RDS::DBSubnetGroup
+    Properties: 
+      DBSubnetGroupName: !Sub workshop-db-subnet-group
+      DBSubnetGroupDescription: DB Subnet Group
+      SubnetIds: 
+        - !Ref ProdDatabaseSubnet1
+        - !Ref ProdDatabaseSubnet2  
+
+  ProdEC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: "Instance Security Group"
+      GroupDescription: "Allow ICMP from 10.0.0.0/8 "
+      VpcId: !Ref ProdVPC
+      SecurityGroupIngress:
+        - IpProtocol: icmp
+          ToPort: -1
+          FromPort: -1
+          CidrIp: 10.0.0.0/8
+      SecurityGroupEgress:    
+        - IpProtocol: tcp
+          ToPort: 443
+          FromPort: 443
+          CidrIp: 0.0.0.0/0
+
+  ProdInstance:
+    DependsOn: EC2InstanceRole
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      NetworkInterfaces:
+        - DeviceIndex: 0        
+          PrivateIpAddress: 10.1.1.4
+          SubnetId: !Ref ProdWorkloadSubnet
+          GroupSet:
+            - !Ref ProdEC2SecurityGroup
+      Tags:
+        - Key: Name
+          Value: "Prod Instance"
+  RDSPostgreSQLDatabase:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    Properties: 
+      DBInstanceIdentifier: !Sub workshop-postgres-instance
+      DBName: TestDB
+      DBInstanceClass: db.t3.small
+      AllocatedStorage: 20    
+      BackupRetentionPeriod: 0
+      DBSubnetGroupName: !Ref DBSubnetGroup   
+      VPCSecurityGroups: 
+        - !Ref ProdDBSecurityGroup 
+      Engine: postgres      
+      MasterUsername: !Join ['', ['{{resolve:secretsmanager:', !Ref SecretAdminUser, ':SecretString:username}}' ]]
+      MasterUserPassword:  !Join ['', ['{{resolve:secretsmanager:', !Ref SecretAdminUser, ':SecretString:password}}' ]]
+      MultiAZ: False      
+      PubliclyAccessible: False
+      StorageEncrypted: True
+      StorageType: gp2
+      DeletionProtection: False 
+
+# Dev VPC Deployment for the AWS Network Firewall
+  DevVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      EnableDnsSupport: 'true'
+      EnableDnsHostnames: 'true'
+      CidrBlock: 10.2.0.0/16
+      Tags:
+        - Key: Name
+          Value: Dev VPC
+
+  DevTransitGatewaySubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZoneSelection
+      CidrBlock: 10.2.0.0/28
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: "Transit Gateway Subnet"
+      VpcId: !Ref DevVPC
+
+  DevRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref DevVPC
+      Tags:
+        - Key: Name
+          Value: Dev Route Table
+
+  DevTransitGatewaySubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref DevTransitGatewaySubnet
+      RouteTableId: !Ref DevRouteTable
+
+  DevWorkloadSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZoneSelection
+      CidrBlock: 10.2.1.0/24
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: Workload Subnet
+      VpcId: !Ref DevVPC  
+
+  DevWorkloadSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref DevWorkloadSubnet
+      RouteTableId: !Ref DevRouteTable
+
+  DevEC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: "Instance Security Group"
+      GroupDescription: "Allow ICMP from 10.0.0.0/8 "
+      VpcId: !Ref DevVPC
+      SecurityGroupIngress:
+        - IpProtocol: icmp
+          ToPort: -1
+          FromPort: -1
+          CidrIp: 10.0.0.0/8
+
+  DevInstance:
+    DependsOn: EC2InstanceRole
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      NetworkInterfaces:
+        - DeviceIndex: 0        
+          PrivateIpAddress: 10.2.1.4
+          SubnetId: !Ref DevWorkloadSubnet
+          GroupSet:
+            - !Ref DevEC2SecurityGroup
+      Tags:
+        - Key: Name
+          Value: "Dev Instance"
+
+# Transit Gateway and Transit Gateway attachment configuration
+  TransitGateway:
+    Type: AWS::EC2::TransitGateway
+    Properties:
+      AmazonSideAsn: 64512
+      Description: ANFW Tranist Gateway
+      AutoAcceptSharedAttachments: disable
+      DefaultRouteTableAssociation: disable
+      DefaultRouteTablePropagation: disable
+      DnsSupport: enable
+      VpnEcmpSupport: enable
+      MulticastSupport: disable
+
+  InspectionVPCAttachment:
+    Type: AWS::EC2::TransitGatewayAttachment
+    Properties: 
+      SubnetIds: 
+        - !Ref InspectionTransitGatewaySubnet
+      TransitGatewayId: !Ref TransitGateway
+      VpcId: !Ref InspectionVPC
+      Tags:
+        - Key: Name
+          Value: Inspection VPC TGW Attachment
+
+  CentralEgressVPCAttachment:
+    Type: AWS::EC2::TransitGatewayAttachment
+    Properties: 
+      SubnetIds: 
+        - !Ref CentralEgressTransitGatewaySubnet
+      TransitGatewayId: !Ref TransitGateway
+      VpcId: !Ref CentralEgressVPC
+      Tags:
+        - Key: Name
+          Value: Central Egress VPC TGW Attachment
+
+  ProdVPCAttachment:
+    Type: AWS::EC2::TransitGatewayAttachment
+    Properties: 
+      SubnetIds: 
+        - !Ref ProdTransitGatewaySubnet
+      TransitGatewayId: !Ref TransitGateway
+      VpcId: !Ref ProdVPC
+      Tags:
+        - Key: Name
+          Value: Prod VPC TGW Attachment
+
+  DevVPCAttachment:
+    Type: AWS::EC2::TransitGatewayAttachment
+    Properties: 
+      SubnetIds: 
+        - !Ref DevTransitGatewaySubnet
+      TransitGatewayId: !Ref TransitGateway
+      VpcId: !Ref DevVPC
+      Tags:
+        - Key: Name
+          Value: Dev VPC TGW Attachment
+
+  ProdInspectionRouteTable:
+    Type: AWS::EC2::TransitGatewayRouteTable
+    Properties: 
+      TransitGatewayId: !Ref TransitGateway
+      Tags:
+        - Key: Name
+          Value: Prod Inspection Route Table
+
+  DevInspectionRouteTable:
+    Type: AWS::EC2::TransitGatewayRouteTable
+    Properties: 
+      TransitGatewayId: !Ref TransitGateway
+      Tags:
+        - Key: Name
+          Value: Dev Inspection Route Table        
+
+  FirewallRouteTable:
+    Type: AWS::EC2::TransitGatewayRouteTable
+    Properties: 
+      TransitGatewayId: !Ref TransitGateway
+      Tags:
+        - Key: Name
+          Value: Firewall Route Table
+
+  CentralEgressRouteTable:
+    Type: AWS::EC2::TransitGatewayRouteTable
+    Properties: 
+      TransitGatewayId: !Ref TransitGateway
+      Tags:
+        - Key: Name
+          Value: Central Egress Route Table
+
+# AWS Network Firewall Configuration 
+  TCPAlertStatefulRuleGroup:
+    Type: AWS::NetworkFirewall::RuleGroup
+    Properties:
+      RuleGroupName: TCP-Alert-Rule-Group
+      Type: STATEFUL
+      Capacity: 100
+      RuleGroup:
+        RulesSource:
+          StatefulRules:
+            - Action: DROP
+              Header:
+                Direction: ANY
+                Protocol: TCP
+                Destination: ANY
+                Source: ANY
+                DestinationPort: 443
+                SourcePort: ANY
+              RuleOptions:
+                - Keyword: "sid:1"
+      Tags:
+        - Key: Name
+          Value: ICMP Alert Rule Group 
+
+  InspectionFirewallPolicy:
+    Type: AWS::NetworkFirewall::FirewallPolicy
+    Properties:
+      FirewallPolicyName: Inspection-Firewall-Policy
+      FirewallPolicy:
+        StatelessDefaultActions:
+          - 'aws:forward_to_sfe'
+        StatelessFragmentDefaultActions:
+          - 'aws:forward_to_sfe'
+        StatefulRuleGroupReferences:
+          - ResourceArn: !Ref TCPAlertStatefulRuleGroup # Ruchi changing to for resoluving resource dependency error channging to TCPAlertStatefulRuleGroup from ICMPAlertStatefulRuleGroup
+      Tags:
+        - Key: Name
+          Value: Inspection Firewall Policy
+
+  InspectionFirewall:
+    Type: AWS::NetworkFirewall::Firewall
+    Properties:
+      FirewallName: ANFW-Lab-Firewall
+      FirewallPolicyArn: !Ref InspectionFirewallPolicy
+      VpcId: !Ref InspectionVPC
+      SubnetMappings:
+        - SubnetId: !Ref InspectionFirewallSubnet
+      Description: Egress Firewall
+
+  InspectionFirewallLogFlowGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: inspection-fw/flow
+
+  InspectionFirewallLogAlertGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: inspection-fw/alert
+    
+  InspectionFirewallLog:
+    Type: AWS::NetworkFirewall::LoggingConfiguration
+    Properties:
+      FirewallArn: !Ref InspectionFirewall
+      LoggingConfiguration:
+        LogDestinationConfigs:
+          - LogType: FLOW
+            LogDestinationType: CloudWatchLogs
+            LogDestination:
+              logGroup: inspection-fw/flow
+          - LogType: ALERT
+            LogDestinationType: CloudWatchLogs
+            LogDestination:
+              logGroup: inspection-fw/alert
+
+  EC2Route1:
+    Type: "AWS::EC2::Route"
+    DependsOn: CentralEgressVPCAttachment
+    Properties:
+      DestinationCidrBlock: "10.0.0.0/8"
+      RouteTableId: !Ref CentralEgressTransitGatewaySubnetRouteTable
+      TransitGatewayId: !Ref TransitGateway
+      
+  EC2Route2:
+    Type: "AWS::EC2::Route"
+    DependsOn: CentralEgressPublicSubnetNATGateway
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId: !Ref CentralEgressPublicSubnetNATGateway
+      RouteTableId: !Ref CentralEgressTransitGatewaySubnetRouteTable
+      
+  EC2Route3:
+    Type: "AWS::EC2::Route"
+    DependsOn: CentralEgressVPCAttachment
+    Properties:
+      DestinationCidrBlock: "10.0.0.0/8"
+      RouteTableId: !Ref CentralEgressPublicSubnetRouteTable
+      TransitGatewayId: !Ref TransitGateway
+      
+  EC2Route4:
+    Type: "AWS::EC2::Route"
+    DependsOn: CentralEgressInternetGatewayAttachment
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      RouteTableId: !Ref CentralEgressPublicSubnetRouteTable
+      GatewayId: !Ref CentralEgressInternetGateway
+      
+  EC2Route5:
+    Type: "AWS::EC2::Route"
+    DependsOn: InspectionVPCAttachment
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      RouteTableId: !Ref InspectionFirewallSubnetRouteTable
+      TransitGatewayId: !Ref TransitGateway
+      
+  EC2Route6:
+    Type: "AWS::EC2::Route"
+    DependsOn: ProdVPCAttachment
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      RouteTableId: !Ref ProdRouteTable
+      TransitGatewayId: !Ref TransitGateway
+
+  EC2Route7:
+    Type: "AWS::EC2::Route"
+    DependsOn: InspectionVPCAttachment
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      RouteTableId: !Ref InspectionTransitGatewaySubnetRouteTable
+      VpcEndpointId: !Select [ 0, !Split [ ',', !Select [ 1 , !Split [ 'a:', !Join [ ',', !GetAtt InspectionFirewall.EndpointIds ] ] ] ] ]
+
+  EC2Route8:
+    Type: "AWS::EC2::Route"
+    DependsOn: DevVPCAttachment
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      RouteTableId: !Ref DevRouteTable
+      TransitGatewayId: !Ref TransitGateway
+  
+  EC2TransitGatewayRoute1:
+    Type: "AWS::EC2::TransitGatewayRoute"
+    DependsOn: ProdVPCAttachment
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      TransitGatewayRouteTableId: !Ref ProdInspectionRouteTable
+      TransitGatewayAttachmentId: !Ref InspectionVPCAttachment
+      
+  EC2TransitGatewayRoute2:
+    Type: "AWS::EC2::TransitGatewayRoute"
+    DependsOn: CentralEgressVPCAttachment
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      TransitGatewayRouteTableId: !Ref FirewallRouteTable
+      TransitGatewayAttachmentId: !Ref CentralEgressVPCAttachment
+  
+  EC2TransitGatewayRoute3:
+    Type: "AWS::EC2::TransitGatewayRoute"
+    DependsOn: InspectionVPCAttachment
+    Properties:
+      DestinationCidrBlock: "10.0.0.0/8"
+      TransitGatewayRouteTableId: !Ref CentralEgressRouteTable
+      TransitGatewayAttachmentId: !Ref InspectionVPCAttachment
+
+  EC2TransitGatewayRoute4:
+    Type: "AWS::EC2::TransitGatewayRoute"
+    DependsOn: DevVPCAttachment
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      TransitGatewayRouteTableId: !Ref DevInspectionRouteTable
+      TransitGatewayAttachmentId: !Ref InspectionVPCAttachment
+      
+  EC2TransitGatewayRoute5:
+    Type: "AWS::EC2::TransitGatewayRoute"
+    DependsOn: DevVPCAttachment
+    Properties:
+      Blackhole: Yes
+      DestinationCidrBlock: "10.1.0.0/16"
+      TransitGatewayRouteTableId: !Ref DevInspectionRouteTable 
+      
+  EC2TransitGatewayRouteTableAssociation:
+    DependsOn: InspectionVPCAttachment
+    Type: "AWS::EC2::TransitGatewayRouteTableAssociation"
+    Properties:
+      TransitGatewayAttachmentId: !Ref InspectionVPCAttachment
+      TransitGatewayRouteTableId: !Ref FirewallRouteTable
+      
+  EC2TransitGatewayRouteTableAssociation1:
+    DependsOn: ProdVPCAttachment
+    Type: "AWS::EC2::TransitGatewayRouteTableAssociation"
+    Properties:
+      TransitGatewayAttachmentId: !Ref ProdVPCAttachment
+      TransitGatewayRouteTableId: !Ref ProdInspectionRouteTable
+      
+  EC2TransitGatewayRouteTableAssociation2:
+    DependsOn: CentralEgressVPCAttachment
+    Type: "AWS::EC2::TransitGatewayRouteTableAssociation"
+    Properties:
+      TransitGatewayAttachmentId: !Ref CentralEgressVPCAttachment
+      TransitGatewayRouteTableId: !Ref CentralEgressRouteTable
+  
+  EC2TransitGatewayRouteTableAssociation3:
+    DependsOn: DevVPCAttachment
+    Type: "AWS::EC2::TransitGatewayRouteTableAssociation"
+    Properties:
+      TransitGatewayAttachmentId: !Ref DevVPCAttachment
+      TransitGatewayRouteTableId: !Ref DevInspectionRouteTable
+      
+  EC2Transitgatewayroutepropagation1: 
+    Type: AWS::EC2::TransitGatewayRouteTablePropagation
+    Properties: 
+      TransitGatewayAttachmentId: !Ref DevVPCAttachment
+      TransitGatewayRouteTableId: !Ref FirewallRouteTable
+
+  EC2Transitgatewayroutepropagation2: 
+    Type: AWS::EC2::TransitGatewayRouteTablePropagation
+    Properties: 
+      TransitGatewayAttachmentId: !Ref ProdVPCAttachment
+      TransitGatewayRouteTableId: !Ref FirewallRouteTable
+
+
+  CentralEC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: "Instance Security Group"
+      GroupDescription: "Allow All from 0.0.0.0/0 "
+      VpcId: !Ref CentralEgressVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          ToPort: 80
+          FromPort: 80
+          CidrIp: 0.0.0.0/0
+
+  CentralEgressInstance:
+    DependsOn: EC2InstanceRole
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      NetworkInterfaces:
+        - DeviceIndex: 0        
+          PrivateIpAddress: 10.10.1.134
+          SubnetId: !Ref CentralEgressPublicSubnet
+          GroupSet:
+            - !Ref CentralEC2SecurityGroup
+      Tags:
+        - Key: Name
+          Value: "Web Instance"
+
+  OutboundRuleProd:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+       NetworkAclId: {"Fn::GetAtt" : ["ProdVPC" , "DefaultNetworkAcl"]}
+       RuleNumber: 90
+       Protocol: -1
+       Egress: true
+       RuleAction: deny
+       CidrBlock: 100.64.0.0/24
+
+  OutboundRuleDev:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+       NetworkAclId: {"Fn::GetAtt" : ["DevVPC" , "DefaultNetworkAcl"]}
+       RuleNumber: 90
+       Protocol: -1
+       Egress: true
+       RuleAction: deny
+       CidrBlock: 100.64.0.0/24

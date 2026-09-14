@@ -331,7 +331,7 @@ Resources:
   # 6. Router EC2 Instances (UserData will go here in next section)
   ###############################################
 
-    # Section 6: EC2 Instances
+  # Section 6: EC2 Instances
   # Not in console code example  
   # modified userdata
   EdgeRouter1:
@@ -520,8 +520,6 @@ Resources:
         TransitGatewayAddress: "10.10.0.1"
         InsideCidrBlocks:
           - "169.254.255.0/29"
-        # BgpOptions:
-        #   PeerAsn: 65500
         Protocol: gre
         BgpConfigurations:
           - PeerAsn: 65500          

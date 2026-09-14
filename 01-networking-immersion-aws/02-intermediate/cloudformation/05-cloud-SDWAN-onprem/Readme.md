@@ -1,3 +1,21 @@
+AWS Transit Gateway Connect simplifies the integration of third-party SD-WAN and networking appliances with AWS by enabling direct BGP peering with Transit Gateway over GRE tunnels. 
+Transit Gateway Connect allows third-party appliances to leverage existing VPC attachments or Direct Connect attachments as a transport layer, allowing higher bandwidth when compared to VPN.
+
+By using GRE tunnels between network appliances and AWS Transit Gateway, organizations can establish dynamic routing with BGP, enabling seamless route exchange without the complexity of manually configuring static routes. This approach enhances scalability and provides flexible connectivity between SDWAN fabric and AWS VPCs over private network.
+
+A Connect peer can only be established over a VPC attachments or Direct Connect attachments — these serve as the underlying transport that carries GRE traffic between your appliance and the Transit Gateway. 
+This enables appliances running in AWS or in your on-premises environment (via Direct Connect) to dynamically exchange routes with the Transit Gateway.
+In this lab, we will set up a third-party network appliance and integrate it with an existing AWS Transit Gateway using a Transit Gateway Connect Attachment. 
+This hands-on experience will demonstrate how GRE tunneling and BGP peering enable dynamic route propagation, providing a scalable and efficient solution for integrating SD-WAN appliances with AWS networking services.
+
+To build out our simulated network appliance environment and connect it to AWS, we will:
+
+Deploy a VPC containing a third-party network appliance.
+Create a Transit Gateway Connect Attachment.
+Establish a GRE tunnel between the appliance and Transit Gateway.
+Enable BGP peering over the GRE tunnel.
+Validate connectivity and route propagation.
+
 <!-- Connecting to SDWAN -->
 
 AWS Transit Gateway Connect simplifies the integration of third-party SD-WAN and networking appliances with AWS by enabling direct BGP peering with Transit Gateway over GRE tunnels. Transit Gateway Connect allows third-party appliances to leverage existing VPC attachments or Direct Connect attachments as a transport layer, allowing higher bandwidth when compared to VPN.

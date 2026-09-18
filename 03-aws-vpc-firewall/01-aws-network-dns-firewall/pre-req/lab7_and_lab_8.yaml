@@ -1,0 +1,622 @@
+#Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+
+#THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+#IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+#FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+#COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+#IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+#CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "AWS Network Firewall DIY Template for Lab 5."
+
+Metadata:
+  "AWS::CloudFormation::Interface":
+    ParameterGroups:
+      # - Label:
+      #     default: "VPC Parameters"
+      #   Parameters:
+      #     - AvailabilityZone1Selection
+      #     - AvailabilityZone2Selection
+      - Label:
+          default: "EC2 Parameters"
+        Parameters:
+          - LatestAmiId
+
+Parameters:
+  # AvailabilityZone1Selection:
+  #   Description: Availability Zone 1
+  #   Type: AWS::EC2::AvailabilityZone::Name
+
+  # AvailabilityZone2Selection:
+  #   Description: Availability Zone 2
+  #   Type: AWS::EC2::AvailabilityZone::Name
+
+  MyAssetsBucketName:
+    Description: Assets bucket name
+    Type: String
+  MyAssetsBucketPrefix:
+    Description: Assets bucket prefix
+    Type: String
+
+  LatestAmiId:
+    Description: Latest EC2 AMI from Systems Manager Parameter Store
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+
+Resources:
+# VPC:
+  IngressVpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: "172.31.0.0/16"
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: "AnfwDemo-IngressVPC"
+
+  # IPv6CidrBlock:
+  #   Type: AWS::EC2::VPCCidrBlock
+  #   Properties:
+  #     VpcId: !Ref IngressVpc
+  #     AmazonProvidedIpv6CidrBlock: true
+
+# Internet Gateway:
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: "AnfwDemo-IngressVPC-IGW"
+
+  AttachInternetGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId:
+        !Ref IngressVpc
+      InternetGatewayId:
+        !Ref InternetGateway
+
+# NAT Gateway:
+  NatGwAEip:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  NatGwBEip:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  NatGwA:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt
+        - NatGwAEip
+        - AllocationId
+      SubnetId: !Ref PublicSubnetA
+      Tags:
+        - Key: Name
+          Value: "AnfwDemo-IngressVPC-NATGWA"
+
+  NatGwB:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt
+        - NatGwBEip
+        - AllocationId
+      SubnetId: !Ref PublicSubnetB
+      Tags:
+        - Key: Name
+          Value: "AnfwDemo-IngressVPC-NATGWB"
+
+# EIP for Test Instance to access ALB:
+# Using this as it violates InfoSec policy to have wide open (0/0) security group
+  # TestInstanceAEIP:
+  #   Type: AWS::EC2::EIP
+  #   DependsOn:
+  #     - 'AttachInternetGateway'    
+  #   Properties:
+  #     InstanceId: !Ref TestInstanceA
+  #     Domain: vpc  
+
+# Private Subnets for Test Instances:
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: IngressVpc
+      CidrBlock: "172.31.121.0/24"
+      AvailabilityZone: !Select 
+        - 0
+        - Fn::GetAZs: !Ref 'AWS::Region'
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: "AnfwDemo-IngressVPC-PrivateSubnetA"
+
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: IngressVpc
+      CidrBlock: "172.31.122.0/24"
+      AvailabilityZone: !Select 
+        - 1
+        - Fn::GetAZs: !Ref 'AWS::Region'
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: "AnfwDemo-IngressVPC-PrivateSubnetB"
+
+# Public Subnets for NAT GWs and ALB:
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: IngressVpc
+      CidrBlock: "172.31.111.0/24"
+      AvailabilityZone: !Select 
+        - 0
+        - Fn::GetAZs: !Ref 'AWS::Region'
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: "AnfwDemo-IngressVPC-PublicSubnetA"
+
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: IngressVpc
+      CidrBlock: "172.31.112.0/24"
+      AvailabilityZone: !Select 
+        - 1
+        - Fn::GetAZs: !Ref 'AWS::Region'
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: "AnfwDemo-IngressVPC-PublicSubnetB"
+
+# AWS PrivateLink interface endpoint for services:
+  IngressVpcEndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+        GroupDescription: Allow instances to get to SSM Systems Manager
+        VpcId: !Ref IngressVpc
+        SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 172.31.0.0/16
+        Tags:
+          - Key: Name
+            Value: "AnfwDemo-IngressVPC-VpceSgA"
+
+  IngressVpcSSMEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+        PrivateDnsEnabled: true
+        SecurityGroupIds:
+          - !Ref IngressVpcEndpointSecurityGroup
+        ServiceName: !Sub "com.amazonaws.${AWS::Region}.ssm"
+        SubnetIds:
+          - !Ref PublicSubnetA
+          - !Ref PublicSubnetB
+        VpcEndpointType: Interface
+        VpcId: !Ref IngressVpc
+
+  IngressVpcEC2MessagesEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+        PrivateDnsEnabled: true
+        SecurityGroupIds:
+          - !Ref IngressVpcEndpointSecurityGroup
+        ServiceName: !Sub "com.amazonaws.${AWS::Region}.ec2messages"
+        SubnetIds:
+          - !Ref PublicSubnetA
+          - !Ref PublicSubnetB
+        VpcEndpointType: Interface
+        VpcId: !Ref IngressVpc
+
+  IngressVpcSSMMessagesEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+        PrivateDnsEnabled: true
+        SecurityGroupIds:
+          - !Ref IngressVpcEndpointSecurityGroup
+        ServiceName: !Sub "com.amazonaws.${AWS::Region}.ssmmessages"
+        SubnetIds:
+          - !Ref PublicSubnetA
+          - !Ref PublicSubnetB
+        VpcEndpointType: Interface
+        VpcId: !Ref IngressVpc
+
+# SSM Role:
+  SsmRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "AnfwDemo-IngressVPC-TestInstanceSsmRole-${AWS::Region}"
+      Path: "/"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+
+  Ec2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+        - !Ref SsmRole
+
+# Security Group:
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    # DependsOn:
+    #   - 'TestInstanceAEIP'
+    Properties:
+      VpcId: !Ref IngressVpc
+      GroupName: "AnfwDemo-IngressVPC-ALBSg"
+      GroupDescription: >-
+        Access to ALB: allow HTTP and HTTPS VPC CIDR.
+      SecurityGroupIngress:
+        - CidrIp: "172.31.0.0/16"
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+        - CidrIp: "172.31.0.0/16"
+          IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443            
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: "-1"
+          FromPort: -1
+          ToPort: -1
+      Tags:
+        - Key: Name
+          Value: "AnfwDemo-IngressVPC-ALBSg"
+
+  WebInstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: "AnfwDemo-IngressVPC-WebInstanceSg"
+      GroupDescription: >-
+        Allow all traffic from ALB security group and ICMP from VPC CIDR.
+      VpcId: !Ref IngressVpc
+      SecurityGroupIngress:
+        - CidrIp: "172.31.0.0/16"
+          IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+        - SourceSecurityGroupId: !GetAtt AlbSecurityGroup.GroupId
+          IpProtocol: "-1"
+          FromPort: -1
+          ToPort: -1                   
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: "-1"
+          FromPort: -1
+          ToPort: -1
+      Tags:
+        - Key: Name
+          Value: "AnfwDemo-IngressVPC-WebInstanceSg"
+
+  # TestInstanceSecurityGroup:
+  #   Type: AWS::EC2::SecurityGroup
+  #   Properties:
+  #     GroupName: "AnfwDemo-IngressVPC-TestInstanceSg"
+  #     GroupDescription: >-
+  #       Allow all traffic ALB security group and ICMP from VPC CIDR.
+  #     VpcId: !Ref IngressVpc
+  #     SecurityGroupIngress:
+  #       - CidrIp: "172.31.0.0/16"
+  #         IpProtocol: "-1"
+  #         FromPort: -1
+  #         ToPort: -1               
+  #     SecurityGroupEgress:
+  #       - CidrIp: 0.0.0.0/0
+  #         IpProtocol: "-1"
+  #         FromPort: -1
+  #         ToPort: -1
+  #     Tags:
+  #       - Key: Name
+  #         Value: "AnfwDemo-IngressVPC-TestInstanceSg"
+
+
+# Test Instances:
+  WebInstanceA:
+    Type: AWS::EC2::Instance
+    DependsOn: PrivateRtbADefaultRoute
+    Properties:
+      ImageId: !Ref LatestAmiId
+      SubnetId: !Ref PrivateSubnetA
+      InstanceType: t2.micro
+      SecurityGroupIds:
+        - !Ref WebInstanceSecurityGroup
+      IamInstanceProfile: !Ref Ec2InstanceProfile
+      Tags:
+        - Key: Name
+          Value: "AnfwDemo-IngressVPC-WebInstanceA"
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash -ex
+          
+          # Install packages:
+          yum update -y;
+          yum install jq -y;
+          yum install httpd -y;
+          yum install htop -y;
+
+          # Configure hostname:
+          hostnamectl set-hostname WebInstanceA;
+
+          # Define variables:
+          curl --silent http://169.254.169.254/latest/dynamic/instance-identity/document > /home/ec2-user/iid;
+          export instance_az=$(cat /home/ec2-user/iid |grep 'availability' | awk -F': ' '{print $2}' | awk -F',' '{print $1}');
+          export instance_ip=$(cat /home/ec2-user/iid |grep 'privateIp' | awk -F': ' '{print $2}' | awk -F',' '{print $1}' | awk -F'"' '{print$2}');
+          export instance_region=$(cat /home/ec2-user/iid |grep 'region' | awk -F': ' '{print $2}' | awk -F',' '{print $1}' | awk -F'"' '{print$2}');
+
+          # Add index.html
+          touch /var/www/html/index.html;
+          cat <<EOT >> /var/www/html/index.html
+          <html>
+            <head>
+              <title>Test Web Server</title>
+              <meta http-equiv='Content-Type' content='text/html; charset=ISO-8859-1'>
+            </head>
+            <body>
+              <h1>Welcome to AWS Network Firewall Workshop:</h1>
+              <h2>This is a simple web server running in $instance_az.</h2>
+            </body>
+          </html>
+          EOT
+
+          # Enable and start httpd
+          systemctl enable httpd;
+          systemctl start httpd;          
+
+  WebInstanceB:
+    Type: AWS::EC2::Instance
+    DependsOn: PrivateRtbBDefaultRoute
+    Properties:
+      ImageId: !Ref LatestAmiId
+      SubnetId: !Ref PrivateSubnetB
+      InstanceType: t2.micro
+      SecurityGroupIds:
+        - !Ref WebInstanceSecurityGroup
+      IamInstanceProfile: !Ref Ec2InstanceProfile
+      Tags:
+        - Key: Name
+          Value: "AnfwDemo-IngressVPC-WebInstanceB"
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash -ex
+          
+          # Install packages:
+          yum update -y;
+          yum install jq -y;
+          yum install httpd -y;
+          yum install htop -y;
+
+          # Configure hostname:
+          hostnamectl set-hostname WebInstanceB;
+
+          # Define variables:
+          curl --silent http://169.254.169.254/latest/dynamic/instance-identity/document > /home/ec2-user/iid;
+          export instance_az=$(cat /home/ec2-user/iid |grep 'availability' | awk -F': ' '{print $2}' | awk -F',' '{print $1}');
+          export instance_ip=$(cat /home/ec2-user/iid |grep 'privateIp' | awk -F': ' '{print $2}' | awk -F',' '{print $1}' | awk -F'"' '{print$2}');
+          export instance_region=$(cat /home/ec2-user/iid |grep 'region' | awk -F': ' '{print $2}' | awk -F',' '{print $1}' | awk -F'"' '{print$2}');
+
+          # Add index.html
+          touch /var/www/html/index.html;
+          cat <<EOT >> /var/www/html/index.html
+          <html>
+            <head>
+              <title>Test Web Server</title>
+              <meta http-equiv='Content-Type' content='text/html; charset=ISO-8859-1'>
+            </head>
+            <body>
+              <h1>Welcome to AWS Network Firewall Workshop:</h1>
+              <h2>This is a simple web server running in $instance_az.</h2>
+            </body>
+          </html>
+          EOT
+
+          # Enable and start httpd
+          systemctl enable httpd;
+          systemctl start httpd;          
+
+  # TestInstanceA:
+  #   Type: AWS::EC2::Instance
+  #   DependsOn: PublicRtbADefaultRoute
+  #   Properties:
+  #     ImageId: !Ref LatestAmiId
+  #     SubnetId: !Ref PublicSubnetA
+  #     InstanceType: t2.micro
+  #     SecurityGroupIds:
+  #       - !Ref TestInstanceSecurityGroup
+  #     IamInstanceProfile: !Ref Ec2InstanceProfile
+  #     Tags:
+  #       - Key: Name
+  #         Value: "AnfwDemo-IngressVPC-WebInstanceB"
+  #     UserData:
+  #       Fn::Base64: |
+  #         #!/bin/bash -ex
+          
+  #         # Install packages:
+  #         yum update -y;
+  #         yum install jq -y;
+  #         yum install httpd -y;
+  #         yum install htop -y;
+
+  #         # Configure hostname:
+  #         hostnamectl set-hostname TestInstanceA;
+
+  #         # Define variables:
+  #         curl --silent http://169.254.169.254/latest/dynamic/instance-identity/document > /home/ec2-user/iid;
+  #         export instance_az=$(cat /home/ec2-user/iid |grep 'availability' | awk -F': ' '{print $2}' | awk -F',' '{print $1}');
+  #         export instance_ip=$(cat /home/ec2-user/iid |grep 'privateIp' | awk -F': ' '{print $2}' | awk -F',' '{print $1}' | awk -F'"' '{print$2}');
+  #         export instance_region=$(cat /home/ec2-user/iid |grep 'region' | awk -F': ' '{print $2}' | awk -F',' '{print $1}' | awk -F'"' '{print$2}');
+
+  #         # Add index.html
+  #         touch /var/www/html/index.html;
+  #         cat <<EOT >> /var/www/html/index.html
+  #         <html>
+  #           <head>
+  #             <title>Test Instance to Access External ALB</title>
+  #             <meta http-equiv='Content-Type' content='text/html; charset=ISO-8859-1'>
+  #           </head>
+  #           <body>
+  #             <h1>Welcome to AWS Network Firewall Workshop:</h1>
+  #             <h2>This is a Test Instance running in $instance_az.</h2>
+  #           </body>
+  #         </html>
+  #         EOT
+
+  #         # Enable and start httpd
+  #         systemctl enable httpd;
+  #         systemctl start httpd;          
+
+# Private Route Tables:
+  PrivateRtbA:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref IngressVpc
+      Tags:
+        - Key: Name
+          Value: "AnfwDemo-IngressVPC-PrivateRtbA"
+
+  PrivateRtbAAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRtbA
+      SubnetId: !Ref PrivateSubnetA
+
+  PrivateRtbADefaultRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId: !Ref NatGwA
+      RouteTableId: !Ref PrivateRtbA
+
+  PrivateRtbB:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref IngressVpc
+      Tags:
+        - Key: Name
+          Value: "AnfwDemo-IngressVPC-PrivateRtbB"
+
+  PrivateRtbBAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRtbB
+      SubnetId: !Ref PrivateSubnetB
+
+  PrivateRtbBDefaultRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId: !Ref NatGwB
+      RouteTableId: !Ref PrivateRtbB
+
+# Public Route Tables:
+  PublicRtbA:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref IngressVpc
+      Tags:
+        - Key: Name
+          Value: "AnfwDemo-IngressVPC-PublicRtbA"
+
+  PublicRtbAAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRtbA
+      SubnetId: !Ref PublicSubnetA
+
+  PublicRtbADefaultRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref InternetGateway
+      RouteTableId: !Ref PublicRtbA
+
+  PublicRtbB:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref IngressVpc
+      Tags:
+        - Key: Name
+          Value: "AnfwDemo-IngressVPC-PublicRtbB"
+
+  PublicRtbBAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRtbB
+      SubnetId: !Ref PublicSubnetB
+
+  PublicRtbBDefaultRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref InternetGateway
+      RouteTableId: !Ref PublicRtbB
+
+# ALB, Target Group and Listener:
+  ALB:
+    DependsOn: InternetGateway
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: "AnfwDemo-IngressVPC-ExternalAlb"
+      Scheme: internet-facing
+      Type: application
+      SecurityGroups: 
+        - !Ref AlbSecurityGroup  
+      Subnets:
+        - !Ref PublicSubnetA
+        - !Ref PublicSubnetB
+      Tags:
+      - Key: Name
+        Value: "AnfwDemo-IngressVPC-ExternalAlb"
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: "AnfwDemo-IngressVPC-Tg1"
+      Port: 80
+      Protocol: HTTP
+      TargetGroupAttributes:
+      - Key: deregistration_delay.timeout_seconds
+        Value: "20"
+      VpcId: !Ref IngressVpc
+      HealthCheckPort: '80'
+      HealthCheckProtocol: 'HTTP'
+      TargetType: instance
+      Targets:
+        - Id: !Ref WebInstanceA
+        - Id: !Ref WebInstanceB     
+      Tags:
+      - Key: Name
+        Value: "AnfwDemo-IngressVPC-Tg1"
+
+  Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+      - Type: forward
+        TargetGroupArn: !Ref TargetGroup
+      LoadBalancerArn: !Ref ALB

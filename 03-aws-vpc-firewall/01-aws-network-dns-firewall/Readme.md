@@ -63,14 +63,23 @@ When running the workshop in your own account, make sure VPC per region  quota d
 
 - Lab 5 creates another additional VPC.
 
-The coomented firewall, policy, and rulegroups was uses for lab 1-3 with *** Default rule order ***
-But because lab 4-8 uses the centralized model which I could not deploy bcs of missing lambda code 
-I added irewall, policy, and rulegroups for the ***strict rule order*** of the centralized model and used it for the rest of the lab
+
+*** My deployment ***
+- I deployed distributed-model.yaml for lab 1-5 
+
+   I comented firewall, policy, and rulegroups which uses  *** Default rule order ***
+   I added firewall, policy, and rulegroups which uses ***strict rule order*** of the centralized model
+
+- Skipped lab 6 as it uses the centralized firewall model with missing code as noted below
+
+- Modified lab 7 template to lab_7_8_DIY.yaml which added the firewall subnets and all required routing
+
+- Deployed lab_7_8_DIY.yaml template for lab 7 instead of lab_7_and_lab_8.yaml
+
 
 
 ***NOTE THAT LAB ACTIONS AND NAMES SEEM TO MOVE BETWEEN THE distributed-model.yaml and centralized-model.yaml RESOURCES AND MODELS MAKING IT CONFUSING AT SOME POINT***
 *** Like referencing the 'AnfwDemo-InspectionFirewall-Policy-Action' firewall policy resources that is not in the distributed model infra. So I added it ***
-*** So it might help to use the  centralized model infra as I had the above issues as I was using the distributed model infra ***
 *** Lmabda function zip code is missing from workshop  in the centralized model iac as shown below ***
    ACMDeleteValidation:
      Type: 'AWS::Lambda::Function'
@@ -78,7 +87,7 @@ I added irewall, policy, and rulegroups for the ***strict rule order*** of the c
       ..
       ..
 
-*** Old UI that has changed since lab was written ***
+*** Old UI that has changed since lab was written especially arounfd RuleGroups ***
 
 
 *** Lab 1 commands ***
@@ -203,7 +212,7 @@ drop tcp any any <> any 443 (msg:"TCP connection on port 443, but app-layer-prot
 
 *** Lab 6 commands ***
 
-Not completed as it uses the centralized model that is not deployable bcs of the missing lambda code or zip in s3 bucket
+   Not completed as it uses the centralized model that is not deployable bcs of the missing lambda code or zip in s3 bucket
 
 
 *** Lab 7 commands ***
@@ -214,7 +223,53 @@ I have added the firewall subnets and all the routing needed in lab_7_8_DIY.
 
 So deploy the lab_7_8_DIY.yaml template instead. Enter you IP address with subnet mask and leave all the other paramter with their default
 
+
+Routes per route table
+
+Route table	      Destination CIDR	         Target	                        Purpose
+------------------------------------------------------------------------------------------------------------------
+PrivateRtbA	      172.31.0.0/16	            local	                           intra‑VPC
+                  0.0.0.0/0	               FW Endpoint A (FwVpceId1)	      egress → inspection
+
+PrivateRtbB	      172.31.0.0/16	            local	                           intra‑VPC
+                  0.0.0.0/0	               FW Endpoint B (FwVpceId2)	      egress → inspection
+
+PublicRtbA	      172.31.0.0/16	            local	                           intra‑VPC
+                  172.31.121.0/24	         FW Endpoint A (FwVpceId1)	      NAT‑return to Private A → inspection
+                  0.0.0.0/0	               Internet Gateway	               egress to internet
+
+PublicRtbB	      172.31.0.0/16	            local	                           intra‑VPC
+                  172.31.122.0/24	         FW Endpoint B (FwVpceId2)	      NAT‑return to Private B → inspection
+                  0.0.0.0/0	               Internet Gateway	               egress to internet
+
+FirewallRtbA	   172.31.0.0/16	            local	                           intra‑VPC
+                  0.0.0.0/0	               NAT GW A	inspected               egress → NAT
+
+FirewallRtbB	   172.31.0.0/16	            local	intra‑VPC
+                  0.0.0.0/0	               NAT GW B	inspected egress → NAT
+
+
 NOW FOLLOW LAB INSTRUCTION TO COMPLETE LAB
 
+From each instance run:
+
+$: curl AnfwDemo-IngressVPC-ExternalAlb-1810537438.us-west-2.elb.amazonaws.com
+
+<html>
+  <head>
+    <title>Test Web Server</title>
+    <meta http-equiv='Content-Type' content='text/html; charset=ISO-8859-1'>
+  </head>
+  <body>
+    <h1>Welcome to AWS Network Firewall Workshop:</h1>
+    <h2>This is a simple web server running in "us-west-2b".</h2>
+  </body>
+</html>
+
+Or visit the browser: http://anfwdemo-ingressvpc-externalalb-1711083534.us-east-1.elb.amazonaws.com/
+
+
+
 *** Lab 8 commands ***
+   Not completed
 

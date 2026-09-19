@@ -186,8 +186,8 @@ Resources:
         - !Ref IngressVpcEndpointSecurityGroup
       ServiceName: !Sub "com.amazonaws.${AWS::Region}.ssm"
       SubnetIds:
-        - !Ref PublicSubnetA
-        - !Ref PublicSubnetB
+        - !Ref PrivateSubnetA      # was PublicSubnetA
+        - !Ref PrivateSubnetB
       VpcEndpointType: Interface
       VpcId: !Ref IngressVpc
 
@@ -199,8 +199,8 @@ Resources:
         - !Ref IngressVpcEndpointSecurityGroup
       ServiceName: !Sub "com.amazonaws.${AWS::Region}.ec2messages"
       SubnetIds:
-        - !Ref PublicSubnetA
-        - !Ref PublicSubnetB
+        - !Ref PrivateSubnetA
+        - !Ref PrivateSubnetB
       VpcEndpointType: Interface
       VpcId: !Ref IngressVpc
 
@@ -212,8 +212,8 @@ Resources:
         - !Ref IngressVpcEndpointSecurityGroup
       ServiceName: !Sub "com.amazonaws.${AWS::Region}.ssmmessages"
       SubnetIds:
-        - !Ref PublicSubnetA
-        - !Ref PublicSubnetB
+        - !Ref PrivateSubnetA
+        - !Ref PrivateSubnetB
       VpcEndpointType: Interface
       VpcId: !Ref IngressVpc
 
@@ -243,6 +243,7 @@ Resources:
         - !Ref SsmRole
 
 # Security Groups:
+  # allow HTTP and HTTPS traffic to the ALB from the VPC CIDR and specific IPs - including NAT gateway EIPs
   AlbSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -263,6 +264,22 @@ Resources:
           FromPort: 80
           ToPort: 80
         - CidrIp: !Ref MyIPAddress
+          IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+        - CidrIp: !Sub "${NatGwAEip}/32"   # instance traffic hairpins out via NAT
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+        - CidrIp: !Sub "${NatGwBEip}/32"
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+        - CidrIp: !Sub "${NatGwAEip}/32"
+          IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+        - CidrIp: !Sub "${NatGwBEip}/32"
           IpProtocol: tcp
           FromPort: 443
           ToPort: 443
@@ -652,7 +669,7 @@ Resources:
     Type: AWS::EC2::Route
     DependsOn: IngressFirewall
     Properties:
-      DestinationCidrBlock: "172.31.0.0/16"
+      DestinationCidrBlock: "172.31.121.0/24"
       VpcEndpointId: !GetAtt FirewallVpceIds.FwVpceId1
       RouteTableId: !Ref PublicRtbA
 
@@ -681,7 +698,7 @@ Resources:
     Type: AWS::EC2::Route
     DependsOn: IngressFirewall
     Properties:
-      DestinationCidrBlock: "172.31.0.0/16"
+      DestinationCidrBlock: "172.31.122.0/24"
       VpcEndpointId: !GetAtt FirewallVpceIds.FwVpceId2
       RouteTableId: !Ref PublicRtbB
 

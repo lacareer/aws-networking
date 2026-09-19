@@ -76,6 +76,8 @@ When running the workshop in your own account, make sure VPC per region  quota d
 
 - Deployed lab_7_8_DIY.yaml template for lab 7 instead of lab_7_and_lab_8.yaml
 
+- Skipped lab 8 because not needed at the time
+
 
 
 ***NOTE THAT LAB ACTIONS AND NAMES SEEM TO MOVE BETWEEN THE distributed-model.yaml and centralized-model.yaml RESOURCES AND MODELS MAKING IT CONFUSING AT SOME POINT***

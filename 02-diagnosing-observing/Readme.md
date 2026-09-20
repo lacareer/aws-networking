@@ -5,4 +5,4 @@ This workshop will create 4 VPCs. AWS have default limit of 5 VPCs per region.
 Before runnig CloudFormation script, please make sure you have enough limit to create 4 new VPC in the region.
 
 *** Prerequisite ****
-Deploy the template network-analysis.yml before begining any of the module
+Deploy the template network-analysis.yml before begining any of the module and then use the lab doc to complete each
